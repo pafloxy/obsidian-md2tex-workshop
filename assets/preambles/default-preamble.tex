@@ -1,0 +1,112 @@
+% Default EPTCS-oriented preamble for md2tex Workshop.
+% This preamble intentionally omits title/author/event metadata.
+
+\PassOptionsToPackage{hidelinks}{hyperref}
+\documentclass{eptcs}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{braket}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{aliascnt}
+
+\IfFileExists{algorithm.sty}{%
+  \usepackage{algorithm}
+}{}
+\IfFileExists{algpseudocode.sty}{%
+  \usepackage{algpseudocode}
+  \algrenewcommand\algorithmicrequire{Input:}
+  \algrenewcommand\algorithmicensure{Output:}
+  \algnewcommand\algorithmicinput{\textbf{Input:}}
+  \algnewcommand\Input{\item[\algorithmicinput]}
+  \algnewcommand\algorithmicoutput{\textbf{Output:}}
+  \algnewcommand\Output{\item[\algorithmicoutput]}
+}{}
+
+\IfFileExists{bbold.sty}{%
+  \usepackage{bbold}
+  \newcommand{\indicatorone}{\mathbb{1}}
+}{%
+  \newcommand{\indicatorone}{\mathbf{1}}
+}
+
+\newtheorem{theorem}{Theorem}[section]
+
+\newaliascnt{lemma}{theorem}
+\newtheorem{lemma}[lemma]{Lemma}
+\aliascntresetthe{lemma}
+
+\newaliascnt{proposition}{theorem}
+\newtheorem{proposition}[proposition]{Proposition}
+\aliascntresetthe{proposition}
+
+\newaliascnt{corollary}{theorem}
+\newtheorem{corollary}[corollary]{Corollary}
+\aliascntresetthe{corollary}
+
+\theoremstyle{definition}
+\newaliascnt{definition}{theorem}
+\newtheorem{definition}[definition]{Definition}
+\aliascntresetthe{definition}
+
+\newaliascnt{example}{theorem}
+\newtheorem{example}[example]{Example}
+\aliascntresetthe{example}
+
+\theoremstyle{remark}
+\newaliascnt{remark}{theorem}
+\newtheorem{remark}[remark]{Remark}
+\aliascntresetthe{remark}
+
+\newaliascnt{property}{theorem}
+\newtheorem{property}[property]{Property}
+\aliascntresetthe{property}
+
+\IfFileExists{cleveref.sty}{%
+  \usepackage[nameinlink,capitalize,noabbrev]{cleveref}
+  \crefname{lemma}{Lemma}{Lemmas}
+  \Crefname{lemma}{Lemma}{Lemmas}
+  \crefname{proposition}{Proposition}{Propositions}
+  \Crefname{proposition}{Proposition}{Propositions}
+  \crefname{corollary}{Corollary}{Corollaries}
+  \Crefname{corollary}{Corollary}{Corollaries}
+  \crefname{definition}{Definition}{Definitions}
+  \Crefname{definition}{Definition}{Definitions}
+  \crefname{example}{Example}{Examples}
+  \Crefname{example}{Example}{Examples}
+  \crefname{remark}{Remark}{Remarks}
+  \Crefname{remark}{Remark}{Remarks}
+  \crefname{property}{Property}{Properties}
+  \Crefname{property}{Property}{Properties}
+  \crefformat{equation}{(##2##1##3)}
+  \Crefformat{equation}{(##2##1##3)}
+  \crefrangeformat{equation}{(##3##1##4)--(##5##2##6)}
+  \Crefrangeformat{equation}{(##3##1##4)--(##5##2##6)}
+  \crefmultiformat{equation}{(##2##1##3)}{, (##2##1##3)}{, (##2##1##3)}{, (##2##1##3)}
+  \Crefmultiformat{equation}{(##2##1##3)}{, (##2##1##3)}{, (##2##1##3)}{, (##2##1##3)}
+}{%
+  \providecommand{\cref}[1]{\ref{#1}}
+  \providecommand{\Cref}[1]{\ref{#1}}
+}
+
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Q}{\mathbb{Q}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+
+\providecommand{\set}[1]{\left\{#1\right\}}
+\newcommand{\abs}[1]{\left|#1\right|}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+
+\providecommand{\keywords}[1]{\par\noindent\textbf{Keywords:} #1\par}
+\newcommand{\ind}[1]{\indicatorone_{\{#1\}}}
+\newcommand{\1}{\indicatorone}
+
+\bibliographystyle{eptcs}

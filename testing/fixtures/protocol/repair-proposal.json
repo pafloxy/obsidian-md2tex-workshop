@@ -1,0 +1,20 @@
+{
+  "protocolVersion": "workshop-worker.v1",
+  "capability": "compile.syntax-repair",
+  "jobId": "job-a",
+  "documentId": "22a50d1e5211f1bb1fcd069a68c135f10abf850318ca9f8853d1f7f8df758a57",
+  "sourceHash": "677142c3e953cf5585aaf13c927141e5ce76fd39ab7c992c19cf247ed86a5aea",
+  "failureId": "failure-a",
+  "resolvedRecipeHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "toolchainFingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+  "kind": "repair-proposal",
+  "outcome": "candidate",
+  "edits": [
+    {
+      "regionId": "source-1",
+      "before": "[ref{eq:square]",
+      "after": "[ref{eq:square}]"
+    }
+  ],
+  "explanation": "Close the reference argument."
+}

@@ -1,0 +1,17 @@
+# Disposable project-local experiments and verification artifacts.
+/tmp/
+
+# Local build histories and user-specific state are never source releases.
+/runtime/
+/node_modules/
+*.md.workshop.json
+*.md.workshop.json.*
+*.tex.workshop/
+__pycache__/
+*.pyc
+public-release.json
+/public-source/
+/releases/
+/agent-log.md
+/agent-note.md
+/agent-sessions.json

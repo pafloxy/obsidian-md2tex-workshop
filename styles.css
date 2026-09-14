@@ -1,0 +1,129 @@
+.md2tex-workshop-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.md2tex-workshop-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.md2tex-workshop-toolbar button {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.md2tex-workshop-toolbar button:hover {
+  background: var(--interactive-hover);
+}
+
+.md2tex-workshop-summary {
+  display: grid;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.md2tex-workshop-summary code {
+  word-break: break-all;
+}
+
+.md2tex-workshop-status {
+  font-weight: 600;
+}
+
+.md2tex-workshop-status[data-state="error"] {
+  color: var(--text-error);
+}
+
+.md2tex-workshop-status[data-state="success"] {
+  color: var(--text-success);
+}
+
+.md2tex-workshop-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(120px, 24vh);
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.md2tex-workshop-preview,
+.md2tex-workshop-log {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  min-height: 0;
+}
+
+.md2tex-workshop-preview {
+  display: flex;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+.md2tex-workshop-pdf-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--background-primary);
+}
+
+.md2tex-workshop-empty,
+.md2tex-workshop-log pre {
+  margin: 0;
+  padding: 12px;
+}
+
+.md2tex-workshop-log pre {
+  height: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-height: 720px) {
+  .md2tex-workshop-body {
+    grid-template-rows: minmax(0, 1fr) minmax(96px, 18vh);
+  }
+}
+
+/* Manual host: stable diagnostics and native PDF tabs, without an embedded iframe. */
+.md2tex-workshop-manual { overflow: auto; }
+.md2tex-workshop-manual button:disabled { opacity: 0.5; cursor: default; }
+.md2tex-workshop-diagnostics,
+.md2tex-workshop-log-text {
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.md2tex-workshop-log-text { overflow: auto; flex: 1; min-height: 100px; }
+
+/* Output tabs retain the same native PDF embed while alternating with its compiler log. */
+.md2tex-workshop-output { display: flex; flex-direction: column; flex: 1 0 360px; min-height: 360px; gap: 8px; }
+.md2tex-workshop-output-tabs button[aria-selected="true"] { background: var(--interactive-accent); color: var(--text-on-accent); }
+.md2tex-workshop-output [hidden] { display: none !important; }
+.md2tex-workshop-output-pdf,
+.md2tex-workshop-output > .md2tex-workshop-log-text { flex: 1; min-height: 300px; border: 1px solid var(--background-modifier-border); border-radius: 6px; }
+.md2tex-workshop-output-pdf { display: flex; overflow: hidden; }
+.md2tex-workshop-pdf-surface { width: 100%; height: 100%; min-height: 300px; }
+.md2tex-workshop-pdf-surface .pdf-embed { height: 100% !important; min-height: 300px; width: 100%; }
+.md2tex-workshop-pdf-surface .pdf-embed > .pdf-toolbar { flex-shrink: 0; }
+.md2tex-workshop-pdf-surface .pdf-embed > .pdf-container { flex: 1 1 0; min-height: 0; }

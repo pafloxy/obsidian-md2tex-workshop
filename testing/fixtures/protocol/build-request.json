@@ -1,0 +1,20 @@
+{
+  "protocolVersion": "workshop-worker.v1",
+  "kind": "build",
+  "jobId": "job-a",
+  "documentId": "22a50d1e5211f1bb1fcd069a68c135f10abf850318ca9f8853d1f7f8df758a57",
+  "source": {
+    "canonicalPath": "/vault/research/draft.md",
+    "origin": "editor",
+    "text": "---\r\ntex-workshop-engine: xelatex\r\n---\r\n# Draft α\r\n\r\nSee [ref{eq:square].\r\n",
+    "sha256": "677142c3e953cf5585aaf13c927141e5ce76fd39ab7c992c19cf247ed86a5aea",
+    "editorRevision": "revision-1"
+  },
+  "vaultRoot": "/vault",
+  "outputRoot": "/vault/workshop-output",
+  "recipeOverrides": {},
+  "execution": {
+    "latexmk": "latexmk",
+    "timeoutMs": 30000
+  }
+}

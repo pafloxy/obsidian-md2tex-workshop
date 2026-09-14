@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "workshop-third-party.v1",
+  "files": [
+    {
+      "path": "assets/support/eptcs/eptcs.bst",
+      "sha256": "1f1509dc1f56e15eed74bd26cf2716c9a5adcc9eac1832e1c2c0a6c378cdc36b",
+      "upstream": "https://github.com/EPTCS/style/blob/eb1acf70fd7a588ce90246e941d14478d99f8869/eptcs.bst",
+      "license": "LPPL-1.0-or-later",
+      "modified": false
+    },
+    {
+      "path": "assets/support/eptcs/eptcs.cls",
+      "sha256": "9dc33294e1693e9e7c530b06d8db9805cd9472b4bb4ace7a4b3985f0a6d3aa77",
+      "upstream": "https://github.com/EPTCS/style/blob/f71f020d774ae82e0bbb802ff0633f537eb577df/eptcs.cls",
+      "license": "CC-BY-4.0",
+      "modified": false
+    },
+    {
+      "path": "assets/support/eptcs/eptcsalpha.bst",
+      "sha256": "744dae07ccd8b159cf7705b832b7f571ef83cf29617eddd143a084f8127254de",
+      "upstream": "https://github.com/EPTCS/style/blob/eb1acf70fd7a588ce90246e941d14478d99f8869/eptcsalpha.bst",
+      "license": "LPPL-1.0-or-later",
+      "modified": false
+    },
+    {
+      "path": "assets/support/eptcs/eptcsalphaini.bst",
+      "sha256": "0a0668046de371b20cbf771a9db15bd7663e2ae40cb5119e53c5064cb74baeb4",
+      "upstream": "https://github.com/EPTCS/style/blob/eb1acf70fd7a588ce90246e941d14478d99f8869/eptcsalphaini.bst",
+      "license": "LPPL-1.0-or-later",
+      "modified": false
+    },
+    {
+      "path": "assets/support/eptcs/eptcsini.bst",
+      "sha256": "39a23b68f3963c50bf135d2687dc2b51f3bed2ba5512ead84e935f16c1a691b6",
+      "upstream": "https://github.com/EPTCS/style/blob/eb1acf70fd7a588ce90246e941d14478d99f8869/eptcsini.bst",
+      "license": "LPPL-1.0-or-later",
+      "modified": false
+    }
+  ]
+}

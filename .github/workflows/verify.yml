@@ -1,0 +1,29 @@
+name: Verify source
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24.12.0'
+          package-manager-cache: false
+      - name: Fast checks
+        run: npm run test:fast
+      - name: Install test-only system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends latexmk texlive-latex-extra texlive-fonts-recommended texlive-science poppler-utils python3
+      - name: Verify clean public artifact
+        run: |
+          node scripts/public-release.cjs export --out-dir tmp/public-candidate
+          node scripts/public-release.cjs verify --out-dir tmp/public-candidate
+      - name: Full suite in the exported tree
+        working-directory: tmp/public-candidate
+        run: npm test

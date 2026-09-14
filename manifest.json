@@ -1,0 +1,9 @@
+{
+  "id": "md2tex-workshop",
+  "name": "md2tex Workshop",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "Manual Markdown to TeX to PDF workshop using a shared local compiler and latexmk.",
+  "author": "Rajarsi",
+  "isDesktopOnly": true
+}
