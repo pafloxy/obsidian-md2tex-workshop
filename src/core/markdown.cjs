@@ -33,7 +33,7 @@ environments.equation = 'equation';
 /** Parse protected spans before interpreting Markdown punctuation. */
 class DocumentParser {
   /** Keep diagnostics and declarations local to one immutable source snapshot. */
-  constructor(filename) { this.filename = filename; this.diagnostics = []; this.labels = []; this.references = []; this.citations = []; }
+  constructor(filename) { this.filename = filename; this.diagnostics = []; this.labels = []; this.references = []; this.citations = []; this.bibliographies = []; }
 
   /** Attach an actionable diagnostic to an original Markdown line. */
   report(code, message, line, severity = 'error') {
@@ -142,7 +142,7 @@ class DocumentParser {
       if (span.type === 'label') this.report('UNSCOPED_LABEL', 'Place a whole-line label immediately below a heading or at the start of a callout body.', span.line);
       if (span.type === 'math' && /(?<!\\)\\label\{/.test(visibleTex(span.value))) this.report('LABEL_IN_MATH', 'Move the label outside math: use an [!equation] callout with a leading <!-- [label{eq:id}] --> line, or an explicit raw TeX fence.', span.line);
       if (span.type === 'math' && /\\begin\{(?:equation|align|alignat|flalign|gather|multline)\}/.test(visibleTex(span.value))) this.report('NUMBERED_ENVIRONMENT_IN_MATH', 'Use an equation callout for one number or a raw TeX fence for independently numbered environments.', span.line);
-      if (span.type === 'math' && /\[(?:label|ref|cite|todo)\{/.test(visibleTex(span.value))) this.report('DIRECTIVE_IN_MATH', 'Place authoring commands outside math delimiters.', span.line);
+      if (span.type === 'math' && /\[(?:(?:label|ref|cite|todo)\{|printbibliography\])/.test(visibleTex(span.value))) this.report('DIRECTIVE_IN_MATH', 'Place authoring commands outside math delimiters.', span.line);
       if (span.type === 'raw' || span.type === 'math') this.scanRaw(span.value, span.line);
       else if (span.type === 'reference' || span.type === 'citation') {
         for (const id of span.value.split(',').map(value => value.trim())) (span.type === 'reference' ? this.references : this.citations).push({ id, line: span.line });
@@ -154,6 +154,7 @@ class DocumentParser {
 
   /** Check the complete document so forward and backward references are equivalent. */
   validate() {
+    for (const node of this.bibliographies.slice(1)) this.report('DUPLICATE_BIBLIOGRAPHY', 'Use at most one [printbibliography] block.', node.line);
     const declared = new Map();
     for (const label of this.labels) {
       if (!validId.test(label.id)) this.report('INVALID_LABEL', `Use a nonempty literal label ID (letters, digits, : . _ / -): ${label.id}`, label.line);
@@ -199,6 +200,10 @@ class DocumentParser {
         if (end < 0) { this.report('UNCLOSED_COMMENT', 'Close the Obsidian %% comment.', line); push('comment', text.length); }
         else push('comment', end + 2);
         continue;
+      }
+      if (text.startsWith('[printbibliography]', i)) {
+        this.report('BIBLIOGRAPHY_PLACEMENT', 'Put [printbibliography] on its own top-level line; use backticks for a literal example.', line);
+        push('text', i + '[printbibliography]'.length); continue;
       }
       const directive = this.directive(text.slice(i), line);
       if (directive) {
@@ -375,6 +380,11 @@ class DocumentParser {
       const start = lines[i];
       const text = start.text;
       if (!text.trim()) { i++; continue; }
+      if (/^ {0,3}\[printbibliography\][ \t]*$/.test(text)) {
+        const node = { type: 'bibliography', line: start.line, endLine: start.line };
+        if (depth) this.report('BIBLIOGRAPHY_PLACEMENT', 'Put [printbibliography] at the top level, outside lists and callouts.', start.line);
+        this.bibliographies.push(node); nodes.push(node); i++; continue;
+      }
       if (/^(?: {4}|\t)/.test(text)) this.report('UNSUPPORTED_INDENTED_CODE', 'Use a fenced code block for literal indented content.', start.line);
       if (/^ {0,3}(?:=+|-+)\s*$/.test(lines[i + 1]?.text || '') && !/^ {0,3}#/.test(text)) this.report('UNSUPPORTED_SETEXT_HEADING', 'Use an explicit # heading instead of an underlined heading.', lines[i + 1].line);
       if (/^ {0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/.test(text)) { nodes.push({ type: 'rule', line: start.line, endLine: start.line }); i++; continue; }
@@ -520,7 +530,7 @@ class DocumentParser {
       }
       const paragraph = [start];
       i++;
-      while (i < lines.length && lines[i].text.trim() && !/^ {0,3}(?:#{1,6}\s|`{3,}|~{3,}|>|%%|<!--|[-+*]\s|\d+[.)]\s|\\begin\{)/.test(lines[i].text)) paragraph.push(lines[i++]);
+      while (i < lines.length && lines[i].text.trim() && !/^ {0,3}(?:#{1,6}\s|`{3,}|~{3,}|>|%%|<!--|[-+*]\s|\d+[.)]\s|\\begin\{|\[printbibliography\])/.test(lines[i].text)) paragraph.push(lines[i++]);
       const spans = this.inline(paragraph.map(item => item.text).join('\n'), start.line);
       this.collectSpans(spans);
       nodes.push({ type: 'paragraph', line: start.line, endLine: paragraph.at(-1).line, spans });
@@ -607,6 +617,7 @@ function renderDocument(nodes) {
       for (const item of node.content) emit(item.text, item.line);
       emit('\\end{verbatim}', node.endLine);
     } else if (node.type === 'raw') emit(node.value, node.line);
+    else if (node.type === 'bibliography') emit('\\printbibliography', node.line);
     else if (node.type === 'rule') emit('\\par\\noindent\\rule{\\linewidth}{0.4pt}', node.line);
     else if (node.type === 'list') {
       const environment = node.ordered ? 'enumerate' : 'itemize';

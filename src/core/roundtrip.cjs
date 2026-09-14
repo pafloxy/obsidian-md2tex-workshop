@@ -8,7 +8,7 @@ const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { TextDecoder } = require('node:util');
-const { build } = require('./workshop.cjs');
+const { build, buildFrozen } = require('./workshop.cjs');
 const { parseSnapshot } = require('./snapshot.cjs');
 const { convertMarkdown } = require('./markdown.cjs');
 const { recover } = require('./reverse.cjs');
@@ -291,7 +291,8 @@ async function sync(options) {
     const dependencies = baseline.files.filter(file => file.kind);
     const bib = dependencies.filter(file => file.kind === 'bibliography').map(file => path.join(directory, '_checkpoint', file.name));
     const support = dependencies.filter(file => file.kind === 'support').map(file => path.join(directory, '_checkpoint', file.name));
-    result.build = await build({ input: result.artifacts.candidate, outDir: path.join(preview, 'build'), preamble: path.join(directory, '_checkpoint/preamble.tex'), ...baseline.recipe, bib, noBib: !bib.length, support, timeoutMs: options.timeoutMs, latexmk: options.latexmk, signal: options.signal, processOptions: options.processOptions });
+    result.build = await buildFrozen({ input: result.artifacts.candidate, outDir: path.join(preview, 'build'), timeoutMs: options.timeoutMs, latexmk: options.latexmk, signal: options.signal, processOptions: options.processOptions },
+      { preamble: path.join(directory, '_checkpoint/preamble.tex'), ...baseline.recipe, bib, support });
     if (result.build.status !== 'success') fail('CANDIDATE_BUILD_FAILED', 'Candidate is preserved but cannot be applied: inspect build.diagnostics.');
     await loadSession(loaded.sessionPath);
     if (hash(await readText(baseline.sourcePath)) !== result.source.sha256 || hash(await readText(texPath)) !== result.texHash || hash(await readText(result.artifacts.candidate)) !== result.candidateHash) fail('STALE_PREVIEW', 'An input changed during compilation. The candidate/build remain available, but a new preview is required.');

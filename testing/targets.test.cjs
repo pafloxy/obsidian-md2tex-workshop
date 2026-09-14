@@ -100,6 +100,7 @@ test('failed builds, stale reverse previews and conflicting dependency files nev
   assert.equal(stale.status, 'error'); assert.equal(stale.diagnostics[0].code, 'STALE_PREVIEW');
   assert.equal(await fs.readFile(value.input, 'utf8'), value.source);
   const dependency = await fixture(); await setTarget(dependency);
+  dependency.preamble = path.join(root, 'assets/preambles/default-preamble.tex');
   await fs.writeFile(path.join(dependency.directory, 'eptcs.cls'), 'User-owned class');
   const blocked = await buildLinked(dependency);
   assert.equal(blocked.target.code, 'TARGET_DEPENDENCY_CONFLICT');
@@ -117,7 +118,12 @@ test('symlinked target and metadata paths cannot redirect writes', async () => {
 });
 
 test('an external edit during dependency staging wins over target publication', async () => {
-  const value = await fixture(); await setTarget(value); const first = await buildLinked(value); assert.equal(first.target.status, 'success');
+  const value = await fixture();
+  await fs.mkdir(path.join(value.directory, 'resources'));
+  const support = path.join(value.directory, 'resources/extra.tex');
+  await fs.writeFile(support, '% Explicit dependency for the publication race fixture.\n');
+  value.support = [support];
+  await setTarget(value); const first = await buildLinked(value); assert.equal(first.target.status, 'success');
   await fs.appendFile(value.input, '\nA new Markdown paragraph.\n');
   const originalCopy = fs.copyFile; let changed = false;
   /** Inject a real external target edit at a publication I/O boundary. */

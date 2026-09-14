@@ -30,9 +30,9 @@ AI repair is not implemented and no model or API account is required.
    TeX package. A real build below checks the example's package requirements.
 
 There are no npm runtime packages to install. `npm install` is unnecessary.
-The default preamble uses EPTCS, AMS packages, `mathtools`, `braket`, `graphicx`,
-`booktabs`, `xcolor`, `float` and `aliascnt`; inspect
-[the preamble](assets/preambles/default-preamble.tex) for the complete recipe.
+The [basic article preamble](assets/preambles/basic-preamble.tex) uses AMS math
+and theorem packages, `aliascnt`, `hyperref` and `cleveref`. The broader
+[EPTCS preamble](assets/preambles/default-preamble.tex) remains an explicit choice.
 Missing system tools/packages must be installed separately with your permission.
 
 ## Compile a note
@@ -54,6 +54,31 @@ Quote paths containing spaces. From a different directory, invoke the CLI by
 its absolute path. Relative command arguments and the default metadata root
 are resolved from that directory; `--vault-root DIRECTORY` overrides the base
 for note metadata such as bibliography and preamble paths.
+
+## Keep compilation settings in the note
+
+YAML settings take priority over CLI or Obsidian control defaults. With no
+preamble selection, Workshop uses its basic article preamble. For example:
+
+```yaml
+---
+tex-workshop-preamble: preambles/article.tex
+tex-workshop-bibs:
+  - references/main.bib
+tex-workshop-bibliography: bibtex
+---
+```
+
+These are local file paths, not embedded TeX/BibTeX contents. Cite a key using
+`[cite{example2026}]`, then put `[printbibliography]` on its own top-level line
+where the bibliography should appear. Omitting that command keeps automatic
+end placement. `tex-workshop-bibs: []` explicitly disables resources; `--no-bib`
+only disables fallback resources and cannot override a YAML list.
+
+Try the complete [preamble and bibliography example](examples/bibliography/README.md).
+The [CLI guide](docs/cli.md#note-metadata) describes path resolution, backend
+selection and diagnostics. Build JSON records setting origins in
+`profile.origins`; the Workshop panel shows them for the last build.
 
 ## Write readable mathematics
 

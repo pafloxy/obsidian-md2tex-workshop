@@ -51,7 +51,27 @@ Run all commands from the `obsidian-md2tex-workshop` project root. Replace place
 
    The command checks checkpoint identity, candidate/TeX/Markdown hashes, preview integrity, regenerated body, target file identity, and lock ownership. It creates a flushed `artifacts.backup`, then performs an atomic file replacement and readback. A changed note, TeX file, candidate, or checkpoint requires a new preview. Symlink paths, hard links and wrong targets are refused. The lock coordinates this CLI, **not an uncooperative external editor**; the last check and rename cannot form a transaction with that editor.
 
-6. Reload the updated Markdown and continue writing. For the next TeX editing session, take a **new checkpoint**. Reuse your original recipe options for subsequent normal builds; CLI overrides are not injected into the original note's frontmatter. Retain the checkpoint and backups until you no longer need their provenance or frozen dependencies.
+6. Reload the updated Markdown and continue writing. For the next TeX editing session, take a **new checkpoint**. Keep recipe paths in YAML or reuse your original control fallbacks for normal builds; control settings are not injected into the note. Retain the checkpoint and backups until you no longer need their provenance or frozen dependencies.
+
+### YAML recipes and bibliography placement
+
+Ordinary builds resolve YAML before controls and bundled defaults. Preview builds
+use a separate internal route that replays the checkpoint's frozen preamble,
+bibliography and support copies. Changing a live resource file does not change
+that preview. Changing recipe metadata in the saved Markdown produces
+`RECIPE_CHANGED`; reconcile the recipe and create a fresh checkpoint. Unrelated
+frontmatter remains eligible for preservation.
+
+An explicit `[printbibliography]` corresponds to `\printbibliography` inside a
+marked body block. It can move between body blocks while keeping marker order;
+the inverse restores the Markdown directive and verifies exact TeX regeneration.
+Changing between automatic suffix placement and explicit body placement changes
+the wrapper contract: do that in Markdown and start a fresh checkpoint. A preview
+that would change this boundary fails its wrapper/regeneration checks rather
+than silently accepting a different document.
+
+The [bibliography exercise](../examples/bibliography/README.md) demonstrates the
+YAML, citation, printing and recovery sequence with synthetic resources.
 
 Completion: your updated note is the applied candidate, its backup exists, and it can begin another verified checkpoint cycle. No source is deleted as part of the workflow.
 

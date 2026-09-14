@@ -35,6 +35,7 @@ function inspectLegacyInput(snapshot, filename) {
       continue;
     }
     if (!displayMath && !inlineMath) {
+      if (line.trim() === '[printbibliography]') report('STRUCTURAL_REQUIRED', '[printbibliography] requires the built-in structural converter; omit --converter for this syntax.');
       if (/!\[/.test(line)) report('UNSUPPORTED_IMAGE', 'Markdown/Obsidian images are not preserved by the legacy converter. Use explicit TeX graphics with declared support files pending image support.');
       else if (/\[\[/.test(line)) report('UNSUPPORTED_WIKILINK', 'The legacy converter drops wiki-link targets or text. Use explicit display text or TeX links pending link support.');
       else if (/\[[^\]]*\]\([^)]+\)/.test(line)) report('UNSUPPORTED_MARKDOWN_LINK', 'The legacy converter drops Markdown link destinations. Use an explicit TeX hyperlink pending link support.');

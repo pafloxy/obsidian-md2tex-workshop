@@ -10,7 +10,7 @@
     "dev": "node scripts/package-plugin.cjs",
     "deploy": "node scripts/deploy-plugin.cjs",
     "test": "node --test --test-isolation=none --test-concurrency=1 testing/*.test.cjs",
-    "test:fast": "node --test --test-isolation=none --test-concurrency=1 testing/protocol.test.cjs testing/scheduler.test.cjs testing/obsidian-state.test.cjs testing/output-tabs.test.cjs testing/client-startup.test.cjs testing/public-release.test.cjs",
+    "test:fast": "node --test --test-isolation=none --test-concurrency=1 testing/protocol.test.cjs testing/scheduler.test.cjs testing/obsidian-state.test.cjs testing/output-tabs.test.cjs testing/client-startup.test.cjs testing/public-release.test.cjs testing/recipe.test.cjs",
     "release:stage": "node scripts/public-release.cjs export"
   },
   "license": "Apache-2.0",

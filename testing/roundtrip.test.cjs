@@ -202,7 +202,7 @@ test('damaged markers and wrapper edits are diagnosed without changing either in
 });
 
 test('checkpoint and dependency tampering cannot silently change the reconciliation baseline', async () => {
-  const { result } = await checkout('# Draft\n\nA sentence.\n');
+  const { result } = await checkout('# Draft\n\nA sentence.\n', ['--preamble', path.join(root, 'assets/preambles/default-preamble.tex')]);
   const directory = path.dirname(result.artifacts.session);
   const baselinePath = path.join(directory, '_checkpoint/baseline.json');
   const original = await fs.readFile(baselinePath, 'utf8');

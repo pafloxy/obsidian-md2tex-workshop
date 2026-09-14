@@ -37,7 +37,7 @@ function sourcePatch(source, before, after) {
   while (end < before.length - start && end < after.length - start && before.at(-end - 1) === after.at(-end - 1)) end++;
   const removed = before.slice(start, before.length - end);
   const replacement = after.slice(start, after.length - end);
-  if (/\\(?:begin|end|section|subsection|subsubsection|paragraph|subparagraph)\{/.test(removed + replacement)) return null;
+  if (/\\(?:begin|end|section|subsection|subsubsection|paragraph|subparagraph)\{|\\printbibliography\b/.test(removed + replacement)) return null;
   // An insertion needs an existing literal neighbour to avoid searching every offset.
   const context = removed || before.slice(Math.max(0, start - 24), start);
   if (!context) return null;
@@ -145,6 +145,10 @@ function inverseBlocks(tex, depth = 0) {
   const output = [];
   for (let i = 0; i < lines.length;) {
     if (!lines[i]) { i++; continue; }
+    if (lines[i] === '\\printbibliography') {
+      if (depth) return null;
+      output.push('[printbibliography]'); i++; continue;
+    }
     const list = lines[i].match(/^\\begin\{(itemize|enumerate)\}$/);
     if (list) {
       const end = environmentEnd(lines, i);

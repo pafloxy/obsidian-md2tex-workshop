@@ -81,12 +81,14 @@ test('recipe metadata comes from the captured buffer, while the transport filena
   const preamble = path.join(dir, 'article.tex');
   await fs.writeFile(preamble, '\\documentclass{article}\n');
   const executable = await tool(dir, "const fs = require('node:fs'); fs.writeFileSync('main.log', 'Synthetic successful tool log.'); fs.writeFileSync('main.pdf', '%PDF-1.4\\n'); fs.writeFileSync('arguments.json', JSON.stringify(process.argv));");
-  const value = request(dir, '---\ntex-workshop-engine: xelatex\ntex-workshop-preamble: article.tex\n---\n# Unsaved recipe\n', { execution: { latexmk: executable, timeoutMs: 3000 } });
+  const value = request(dir, '---\ntex-workshop-engine: xelatex\ntex-workshop-preamble: article.tex\n---\n# Unsaved recipe\n', { recipeOverrides: { engine: 'pdflatex', preamble: path.join(dir, 'missing-control.tex') }, execution: { latexmk: executable, timeoutMs: 3000 } });
   await fs.writeFile(value.source.canonicalPath, '---\ntex-workshop-engine: pdflatex\n---\n# Saved\n');
   const frame = await client(value).invoke(value);
   assert.equal(frame.result.status, 'success', JSON.stringify(frame));
   assert.equal(frame.result.profile.engine, 'xelatex');
   assert.equal(frame.result.profile.preamblePath, preamble);
+  assert.equal(frame.result.profile.origins.preamble, 'yaml');
+  assert.equal(frame.result.profile.origins.engine, 'yaml');
   assert.ok(JSON.parse(await fs.readFile(path.join(frame.result.artifacts.attempt, 'arguments.json'))).includes('-xelatex'));
   assert.doesNotMatch(await fs.readFile(frame.result.artifacts.body, 'utf8'), /tex-workshop|Saved/);
 });

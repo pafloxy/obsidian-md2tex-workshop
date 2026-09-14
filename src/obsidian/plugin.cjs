@@ -262,7 +262,7 @@ function createRuntime(plugin, api, { openPath } = {}) {
 function settingsClass(api, runtime) {
   /** Show only settings supported by the manual integration. */
   return class WorkshopSettings extends api.PluginSettingTab {
-    /** Render tool locations and recipe overrides; automatic compilation/AI remain disconnected. */
+    /** Render tool locations and document defaults; YAML takes priority over these defaults. */
     display() {
       this.containerEl.empty();
       new api.Setting(this.containerEl).setName('Build selected note automatically').setDesc('Debounce editor/saved changes; manual requests remain queued. AI stays off.').addToggle(toggle => toggle.setValue(runtime.settings.autoBuildEnabled === true).onChange(value => runtime.setAutoBuild(value)));
@@ -271,7 +271,7 @@ function settingsClass(api, runtime) {
         ['latexmkCommand', 'latexmk executable', 'Use latexmk or an absolute executable path.'],
         ['outputFolder', 'Build output folder', 'A normal folder inside this vault.'],
         ['buildTimeoutMs', 'Compilation timeout (ms)', '100 to 300000 milliseconds.'],
-        ['preambleOverride', 'Preamble override', 'Optional absolute or vault-relative preamble; otherwise use note metadata or the bundled default.'],
+        ['preambleOverride', 'Default preamble', 'Optional absolute or vault-relative path, used when YAML omits tex-workshop-preamble. Leave empty for the basic article default.'],
       ]) new api.Setting(this.containerEl).setName(name).setDesc(description).addText(text => text.setValue(String(runtime.settings[key])).onChange(value => {
         const prior = runtime.settings[key];
         runtime.settings[key] = key === 'buildTimeoutMs' ? Number(value) : value;
@@ -279,7 +279,7 @@ function settingsClass(api, runtime) {
         catch (error) { runtime.settings[key] = prior; new api.Notice(error.message); return; }
         void runtime.perform(() => runtime.plugin.saveData(runtime.settings));
       }));
-      new api.Setting(this.containerEl).setName('Engine override').setDesc('Leave unset to use the captured note metadata.').addDropdown(dropdown => {
+      new api.Setting(this.containerEl).setName('Default engine').setDesc('Used when YAML omits tex-workshop-engine. Note metadata always takes priority.').addDropdown(dropdown => {
         for (const [value, label] of [['', 'From note/default'], ['pdflatex', 'pdfLaTeX'], ['xelatex', 'XeLaTeX'], ['lualatex', 'LuaLaTeX']]) dropdown.addOption(value, label);
         dropdown.setValue(runtime.settings.engineOverride).onChange(value => { runtime.settings.engineOverride = value; void runtime.perform(() => runtime.plugin.saveData(runtime.settings)); });
       });

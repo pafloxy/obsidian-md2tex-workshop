@@ -36,6 +36,7 @@ function createViewClass(api, runtime) {
       this.targetEl = summary.createDiv();
       this.statusEl = summary.createDiv({ cls: 'md2tex-workshop-status' });
       this.revisionEl = summary.createDiv();
+      this.recipeEl = summary.createDiv();
       this.linkEl = summary.createDiv();
       this.queueEl = summary.createDiv();
       this.diagnosticEl = root.createEl('pre', { cls: 'md2tex-workshop-diagnostics' });
@@ -63,6 +64,10 @@ function createViewClass(api, runtime) {
       this.statusEl.setText(status);
       this.statusEl.dataset.state = state.diagnostic ? 'error' : state.busy ? 'running' : latest?.status || 'idle';
       this.revisionEl.setText(state.lastSuccess ? state.current ? 'PDF matches the current note.' : 'The last successful PDF is available; the note has changed or has not been checked.' : 'No successful PDF for this note yet.');
+      const profile = latest?.profile;
+      const origin = profile?.origins || {};
+      this.recipeEl.setText(profile ? `Last build settings: ${profile.preamblePath.split(/[\\/]/).pop()} (${origin.preamble || 'recorded'}); ${profile.engine} (${origin.engine || 'recorded'}); bibliography ${profile.bibliographyMode} (${origin.bibliography || 'recorded'}), ${(latest.dependencies || []).filter(item => item.kind === 'bibliography').length} file(s) (${origin.bibs || 'recorded'}).` : 'Build to resolve document settings.');
+      this.recipeEl.title = profile?.preamblePath || '';
       this.buildButton.disabled = !state.target;
       this.buildButton.setText(state.busy || state.reviewing ? 'Queue build' : 'Build');
       this.cancelButton.disabled = !state.busy && !state.queuedBuilds && !state.pendingAutoBuild;

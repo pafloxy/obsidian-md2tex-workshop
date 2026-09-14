@@ -40,9 +40,11 @@ executables come from `PATH`. A trusted external Python converter can be
 selected with `--converter FILE`; it must accept `INPUT --stdout --body-only`.
 There is no automatic converter or provider fallback.
 
-The default recipe uses the shipped EPTCS preamble and support files. There is
-no implicit bibliography file. Custom preambles supply their own packages and
-support files; no saved Obsidian preamble selection is inherited by the CLI.
+The default recipe uses the shipped basic article preamble. There is no implicit
+bibliography file. Select the broader EPTCS recipe explicitly with
+`--preamble assets/preambles/default-preamble.tex` from the repository root;
+its bundled support files are then included. Other custom preambles supply their
+own packages and support files. The CLI does not read saved Obsidian settings.
 
 ## Commands and options
 
@@ -56,11 +58,11 @@ support files; no saved Obsidian preamble selection is inherited by the CLI.
 | `tex-target-status INPUT` / `tex-target-unlink INPUT` | Inspect the shared binding/external edits, or archive the binding while retaining TeX/history. |
 | `tex-target-sync INPUT` / `tex-target-apply INPUT --preview REPORT` | Reverse-preview the named TeX, then explicitly apply a reviewed fresh candidate with backups. See [linked-TeX workflow](linked-tex.md). |
 | `worker REQUEST_JSON` | Build an exact captured snapshot through the same core; emits progress/result NDJSON. The desktop client supplies and validates requests; see [worker contract](plugin-integration.md#worker-execution-and-retained-evidence). |
-| `--preamble FILE` | Override the shipped preamble with an explicit file containing a document class, without document begin/end markers. |
-| `--engine pdflatex\|xelatex\|lualatex` | Engine; default `pdflatex`. XeLaTeX/LuaLaTeX argument routing is implemented but not integration-tested here. |
-| `--bib FILE` | Declare a bibliography file; repeat for multiple files. Replaces note bibliography metadata. |
-| `--no-bib` | Disable bibliography files, including note metadata. Mutually exclusive with `--bib`. |
-| `--bibliography none\|bibtex\|biblatex` | Explicit backend. Default `bibtex` with the shipped recipe; custom preambles default to `none`. |
+| `--preamble FILE` | Fallback when YAML omits the preamble: a file containing a document class without document begin/end markers. |
+| `--engine pdflatex\|xelatex\|lualatex` | Fallback engine; default `pdflatex`. YAML wins. XeLaTeX/LuaLaTeX routing is tested separately from real engine acceptance. |
+| `--bib FILE` | Fallback bibliography files; repeat for multiple files. Used only when YAML omits its resource list. |
+| `--no-bib` | Disable fallback bibliography files. A YAML list still wins. Mutually exclusive with `--bib`. |
+| `--bibliography none\|bibtex\|biblatex` | Fallback backend. Default `bibtex` with bundled recipes; other custom preambles default to `none`. YAML wins. |
 | `--support FILE` | Repeatable additional support file; staged by basename. Needed for custom class/style dependencies. |
 | `--vault-root DIR` | Base for vault-relative metadata paths; does not change the default structural converter. |
 | `--converter FILE` | Opt into a trusted external Python converter, called with `--stdout --body-only`; retains the legacy preflight guards and has no structural source map. |
@@ -83,8 +85,10 @@ A custom preamble must provide its own packages/macros. It must not embed
 `\bibliography`, `\addbibresource`, or `\printbibliography` resource commands:
 the CLI owns their insertion and stages the explicitly declared files. Existing
 `\bibliographystyle` is respected; explicit BibTeX mode otherwise uses `plain`.
-Biblatex mode requires a directly declared `biblatex` package. BibTeX was tested
-with a real bibliography; biblatex execution remains unverified.
+Biblatex mode requires a directly declared `biblatex` package and its configured
+backend tool. Real bibliography builds and frozen previews are tested with
+BibTeX and with `biblatex[backend=biber]` when the optional Biber toolchain is
+enabled. The standard test suite exercises BibTeX without requiring Biber.
 
 Support files are flattened to their basenames. Reserved artifact names,
 duplicate basenames, and selected TeX-sensitive filename characters are rejected
@@ -105,10 +109,19 @@ tex-workshop-bibs:
 ---
 ```
 
-Explicit CLI arguments override the corresponding note fields. Missing or empty
-scalar fields fall back to the CLI defaults. An explicit custom preamble does
-not inherit the bundled EPTCS support files; declare its dependencies using
-`--support`.
+Resolution is by field: **YAML > CLI/Obsidian controls > bundled default**.
+An absent key inherits a value. A present empty or invalid scalar fails instead
+of falling back. `tex-workshop-bibs: []` means no resources; a nonempty YAML list
+still applies when `--no-bib` is supplied. To fix an incorrect YAML path, edit or
+remove that key; supplying another CLI path will not override it. Other custom
+preambles need their dependencies declared with `--support`; selecting the
+bundled EPTCS preamble explicitly retains its bundled support.
+
+Build results and `resolved-config.json` expose `profile.origins` for `preamble`,
+`engine`, `bibs` and `bibliography`: `yaml`, `controls` or `default`. Frozen
+round-trip previews report `checkpoint` because their dependency copies are
+replayed internally. `doctor` resolves controls/defaults only; it does not read
+a note. The Obsidian panel displays the last build's settings and their origins.
 
 This is a deliberately limited metadata reader, not a general YAML library.
 It accepts flat plain/quoted strings and bibliography lists (indented `-` items,
@@ -116,6 +129,28 @@ JSON string arrays, or simple comma-separated values). JSON-style double quotes
 and YAML single quotes are supported. Duplicate/unknown `tex-workshop-*` keys,
 unfinished frontmatter, and unsupported aliases/tags/multiline values are
 diagnosed. Unrelated metadata is omitted from conversion and otherwise ignored.
+
+## Bibliography placement
+
+Use `[cite{key}]` for citations and one `[printbibliography]` on its own top-level
+line to place the bibliography. It can precede an appendix or follow the final
+paragraph. Without this directive, declared resources print at the end as before.
+Code and comments preserve literal examples; lists, callouts, inline uses and
+duplicates receive source diagnostics. The directive requires enabled resources.
+
+Both backends emit `\printbibliography` in the converted body. For BibTeX,
+Workshop defines that command in the wrapper to invoke `\bibliography` with the
+staged filenames; biblatex supplies its own command. Resource ownership stays in
+the wrapper, keeping the body representation independent of the backend.
+Direct raw `\printbibliography`, `\bibliography` and `\addbibresource` body
+commands are diagnosed to prevent competing insertion. Use the YAML list and
+the Markdown placement directive instead. Literal verbatim examples are retained.
+The external-converter adapter does not support the new placement directive.
+
+The [complete example](../examples/bibliography/README.md) includes a custom
+preamble, a synthetic `.bib` file and a recovery walkthrough. Markdown viewers
+display the citation/print commands as draft text; reference entries render in
+the compiled PDF.
 
 ## Build artifacts and publication
 
@@ -187,7 +222,9 @@ code/link/metadata-label cases remain unchanged.
 | Diagnostic | Stage and safe next step | What is preserved |
 | --- | --- | --- |
 | `INVALID_ARGUMENT` | Check `--help`; correct command/options. | No attempt created. |
-| `MISSING_PREAMBLE`, `MISSING_CONVERTER`, `MISSING_DEPENDENCY` | Inspect the returned path; supply an existing file or explicit override. | Source and last success untouched. |
+| `MISSING_PREAMBLE`, `MISSING_CONVERTER`, `MISSING_DEPENDENCY` | Inspect the returned path. Correct a YAML selection in the note; control fallbacks cannot override it. | Source and last success untouched. |
+| `BIBLIOGRAPHY_PLACEMENT`, `DUPLICATE_BIBLIOGRAPHY` | Keep one top-level `[printbibliography]` line; put literal examples in code/comments. | Source untouched; failed conversion retained. |
+| `BIBLIOGRAPHY_RESOURCES_REQUIRED`, `BIBLIOGRAPHY_OWNERSHIP` | Inspect YAML resources/backend; replace competing raw print/resource commands with the supported directive. | Source untouched; no compiler invocation for this attempt. |
 | `INVALID_FRONTMATTER` | Correct the indicated field/line; use the documented subset. | Source and last success untouched. |
 | `PREAMBLE_CLASS_REQUIRED`, bibliography configuration errors | Supply a standalone preamble and explicit compatible backend/dependencies. | No attempt created. |
 | Preflight `UNSUPPORTED_*`, `MISSING_EXPLICIT_LABEL`, `UNESCAPED_TEX_CHARACTER` | Inspect the source line. Use an established explicit representation or retain it for parser work. | Source/config snapshot and previous PDF retained; TeX did not run. |

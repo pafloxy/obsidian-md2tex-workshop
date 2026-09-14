@@ -20,6 +20,16 @@ real conversion, subprocess, PDF, linked-target and round-trip checks, plus
 headless host tests. All scratch data belongs under `tmp/`. Missing tools are
 failures, not silent skips. A full run can take several minutes.
 
+The optional biblatex/Biber integration case is explicitly skipped by default.
+With that toolchain already available, run from the **repository root**:
+
+```sh
+WORKSHOP_TEST_BIBLATEX=1 npm test
+```
+
+This enables a real biblatex compilation and frozen preview. Missing Biber or
+biblatex is then a failure. The default CI tool installation remains unchanged.
+
 For a targeted change, run its test from the **repository root**, for example:
 
 ```sh

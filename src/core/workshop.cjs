@@ -12,6 +12,7 @@ const { parseSnapshot } = require('./snapshot.cjs');
 const { requireProcessSuccess, auditLog } = require('./diagnostics.cjs');
 const { inspectLegacyInput } = require('./preflight.cjs');
 const { convertMarkdown } = require('./markdown.cjs');
+const { bibliography } = require('./bibliography.cjs');
 
 const projectRoot = path.resolve(__dirname, '../..');
 
@@ -42,6 +43,20 @@ async function writeJson(filename, value, atomic = false) {
 
 /** Convert a snapshot and compile its body with a workspace preamble. */
 async function build(options) {
+  return runBuild(options);
+}
+
+/** Replay a verified checkpoint recipe without resolving candidate YAML paths.
+ * Internal use: buildFrozen(options, { preamble, engine, bibliography, bib, support }).
+ * The CLI/worker never accepts this recipe route from serialized input.
+ */
+async function buildFrozen(options, recipe) {
+  const { preamble, engine, bibliography, bib, support } = recipe;
+  return runBuild(options, { preamble, engine, bibliography, bib, support });
+}
+
+/** Execute one build; a separately supplied checkpoint recipe owns document inputs. */
+async function runBuild(options, frozenRecipe = null) {
   const result = { schemaVersion: 'workshop-result.v1', command: 'build', status: 'error', stage: 'configuration', timestamp: timestamp(), diagnostics: [], artifacts: {} };
   let lock = null;
   let lockPath;
@@ -59,11 +74,12 @@ async function build(options) {
     const source = Object.hasOwn(options, 'sourceText') ? options.sourceText : await fs.readFile(input, 'utf8');
     if (typeof source !== 'string') throw new Error('sourceText must be the exact captured Markdown string');
     const snapshot = parseSnapshot(source);
-    const config = await resolveConfiguration(options, snapshot.metadata);
+    const config = await resolveConfiguration(frozenRecipe ? { ...options, ...frozenRecipe } : options, frozenRecipe ? {} : snapshot.metadata);
+    if (frozenRecipe) config.origins = Object.fromEntries(Object.keys(config.origins).map(key => [key, 'checkpoint']));
     const { converter, preamblePath, preamble } = config;
     result.source = { path: input, sha256: digest(source) };
     result.converter = { mode: config.converterMode, path: converter, sha256: digest(config.converterSource) };
-    result.profile = { name: config.profile, preamblePath, sha256: digest(preamble), engine: config.engine, bibliographyMode: config.bibliographyMode };
+    result.profile = { name: config.profile, preamblePath, sha256: digest(preamble), engine: config.engine, bibliographyMode: config.bibliographyMode, origins: config.origins };
     result.dependencies = config.dependencies.map(({ bytes, ...entry }) => ({ ...entry, sha256: digest(bytes) }));
     const documentDir = documentDirectory(input, options.outDir);
     result.attemptId = `${timestamp()}-${randomUUID()}`;
@@ -98,8 +114,10 @@ async function build(options) {
       ...(options.processOptions || {}) };
     stage('conversion');
     let body;
+    let document;
     if (config.converterMode === 'structural') {
       const conversion = convertMarkdown(snapshot, input);
+      document = conversion.document;
       body = conversion.tex;
       sourceLines = conversion.lines;
       result.artifacts.document = path.join(attempt, 'document.json');
@@ -119,18 +137,10 @@ async function build(options) {
     await fs.writeFile(result.artifacts.body, body + '\n', { flag: 'wx' });
     stage('assembly');
     for (const entry of config.dependencies) await fs.writeFile(path.join(attempt, entry.name), entry.bytes, { flag: 'wx' });
-    const bibNames = config.dependencies.filter((entry) => entry.kind === 'bibliography').map((entry) => entry.name);
-    let bibliographyHead = '';
-    let bibliographyTail = '';
-    if (bibNames.length && config.bibliographyMode === 'biblatex') {
-      bibliographyHead = bibNames.map((name) => `\\addbibresource{${name}}`).join('\n');
-      bibliographyTail = '\\printbibliography';
-    } else if (bibNames.length && config.bibliographyMode === 'bibtex') {
-      if (!/\\bibliographystyle\b/.test(config.visiblePreamble)) bibliographyHead = '\\bibliographystyle{plain}';
-      bibliographyTail = `\\bibliography{${bibNames.map((name) => path.basename(name, '.bib')).join(',')}}`;
-    }
-    const prefix = `${preamble}\n${bibliographyHead}\n\\begin{document}\n`;
-    await fs.writeFile(result.artifacts.tex, `${prefix}${body}\n${bibliographyTail}\n\\end{document}\n`, { flag: 'wx' });
+    const placement = bibliography(config, body, document);
+    result.bibliographyPlacement = placement.placement;
+    const prefix = `${preamble}\n${placement.head}\n\\begin{document}\n`;
+    await fs.writeFile(result.artifacts.tex, `${prefix}${body}\n${placement.tail}\n\\end{document}\n`, { flag: 'wx' });
     if (sourceLines) {
       const offset = prefix.split('\n').length - 1;
       sourceLines = sourceLines.map(item => ({ ...item, texLine: item.bodyLine + offset }));
@@ -152,6 +162,7 @@ async function build(options) {
       result.status = 'success';
     }
   } catch (error) {
+    if (error.line && !error.path) error.path = result.source?.path || path.resolve(options.input || '.');
     if (sourceLines && error.texLine && ['main.tex', './main.tex', result.artifacts.tex].includes(error.texFile)) {
       const original = sourceLines.find(item => item.texLine === error.texLine);
       if (original) { error.path = result.source.path; error.line = original.line; if (original.endLine > original.line) error.endLine = original.endLine; }
@@ -193,7 +204,7 @@ async function doctor(options) {
   const result = { schemaVersion: 'workshop-result.v1', command: 'doctor', status: 'error', stage: 'configuration', timestamp: timestamp(), diagnostics: [] };
   try {
     const config = await resolveConfiguration(options);
-    result.profile = { name: config.profile, preamblePath: config.preamblePath, engine: config.engine, bibliographyMode: config.bibliographyMode };
+    result.profile = { name: config.profile, preamblePath: config.preamblePath, engine: config.engine, bibliographyMode: config.bibliographyMode, origins: config.origins };
     result.dependencies = config.dependencies.map(({ bytes, ...entry }) => ({ ...entry, sha256: digest(bytes) }));
     result.converter = config.converter;
     result.stage = 'environment';
@@ -233,4 +244,4 @@ async function status(options) {
   return result;
 }
 
-module.exports = { build, doctor, status, documentDirectory };
+module.exports = { build, buildFrozen, doctor, status, documentDirectory };

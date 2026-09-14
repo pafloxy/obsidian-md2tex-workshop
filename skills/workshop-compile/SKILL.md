@@ -21,6 +21,13 @@ description: Set up or run the md2tex Workshop CLI, locate its PDF and log, and 
    node scripts/workshop.cjs build examples/quickstart/note.md --out-dir tmp/agent-build
    ```
 
+   When the note declares preamble, bibliography or engine fields, inspect those
+   YAML values first: they override control fallbacks. Confirm `profile.origins`
+   in the build result before changing options to fix a selection problem.
+   A bad YAML path needs correction in the note. For `[printbibliography]`, use
+   one top-level line and enabled bibliography resources; follow the
+   [complete resource example](../../examples/bibliography/README.md).
+
 4. Inspect the JSON result, source diagnostics and actual output files. A good
    PDF and linked-target publication are separate outcomes. On failure, read
    the earliest causal log message; preserve the prior PDF and failed attempt.

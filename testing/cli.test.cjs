@@ -49,7 +49,7 @@ test('doctor diagnoses an unavailable preamble without creating output files', a
   assert.deepEqual(await fs.readdir(dir), []);
 });
 
-test('build resolves frontmatter from the same input and allows an explicit override', async () => {
+test('build resolves frontmatter from the same input before control fallbacks', async () => {
   const dir = await scratch();
   const input = path.join(dir, 'draft.md');
   await fs.writeFile(input, '---\ntex-workshop-preamble: ./missing.tex\n---\n# Draft\n\nA complete sentence.\n');
@@ -58,9 +58,13 @@ test('build resolves frontmatter from the same input and allows an explicit over
   assert.ok(failed.result.diagnostics.some(item => item.code === 'MISSING_PREAMBLE'));
   const preamble = path.join(dir, 'article.tex');
   await fs.writeFile(preamble, '\\documentclass{article}\n');
-  const recovered = await invoke(['build', input, '--vault-root', dir, '--converter', path.join(projectRoot, 'testing/fixtures/cli/external-converter.py'), '--preamble', preamble, '--out-dir', path.join(dir, 'output')]);
+  const stillMissing = await invoke(['build', input, '--vault-root', dir, '--preamble', preamble, '--out-dir', path.join(dir, 'output')]);
+  assert.ok(stillMissing.result.diagnostics.some(item => item.code === 'MISSING_PREAMBLE'));
+  await fs.writeFile(input, '---\ntex-workshop-preamble: article.tex\n---\n# Draft\n\nA complete sentence.\n');
+  const recovered = await invoke(['build', input, '--vault-root', dir, '--converter', path.join(projectRoot, 'testing/fixtures/cli/external-converter.py'), '--preamble', path.join(dir, 'missing-control.tex'), '--out-dir', path.join(dir, 'output')]);
   assert.equal(recovered.code, 0, JSON.stringify(recovered.result));
   assert.equal(recovered.result.profile.preamblePath, preamble);
+  assert.equal(recovered.result.profile.origins.preamble, 'yaml');
   assert.doesNotMatch(await fs.readFile(recovered.result.artifacts.body, 'utf8'), /tex-workshop-preamble/);
 });
 
@@ -154,6 +158,7 @@ test('the explicit legacy adapter retains source-line guards before compilation'
   const dir = await scratch();
   const input = path.join(dir, 'draft.md');
   for (const [text, expected] of [
+    ['[printbibliography]', 'STRUCTURAL_REQUIRED'],
     ['We measured 50% of the sample.', 'UNESCAPED_TEX_CHARACTER'],
     ['Compare [[Related note]] for details.', 'UNSUPPORTED_WIKILINK'],
     ['![A figure](figure.png)', 'UNSUPPORTED_IMAGE'],

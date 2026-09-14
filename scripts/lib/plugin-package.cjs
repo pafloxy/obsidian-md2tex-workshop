@@ -139,7 +139,7 @@ async function readPackage(packageDir) {
     if (bytes.length !== member.bytes || hash(bytes) !== member.sha256) fail('PACKAGE_CHANGED', `Package bytes changed: ${member.path}`);
     files.set(member.path, bytes);
   }
-  for (const required of ['main.js', 'manifest.json', 'styles.css', 'toolchain/package.json', 'toolchain/scripts/workshop.cjs', 'toolchain/src/core/workshop.cjs', 'toolchain/src/core/protocol.cjs', 'toolchain/src/obsidian/plugin.cjs', 'toolchain/src/obsidian/client.cjs', 'toolchain/assets/preambles/default-preamble.tex']) {
+  for (const required of ['main.js', 'manifest.json', 'styles.css', 'toolchain/package.json', 'toolchain/scripts/workshop.cjs', 'toolchain/src/core/workshop.cjs', 'toolchain/src/core/protocol.cjs', 'toolchain/src/obsidian/plugin.cjs', 'toolchain/src/obsidian/client.cjs', 'toolchain/assets/preambles/default-preamble.tex', 'toolchain/assets/preambles/basic-preamble.tex', 'toolchain/src/core/bibliography.cjs']) {
     if (!names.has(required)) fail('INCOMPLETE_PACKAGE', `Missing required package member: ${required}`);
   }
   if (hash(JSON.stringify(record.files)) !== record.contentSha256) fail('PACKAGE_CHANGED', 'Package inventory hash does not match');

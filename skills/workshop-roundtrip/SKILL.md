@@ -16,6 +16,11 @@ description: Review TeX edits for recovery into Markdown using Workshop checkpoi
 3. Prepare `tex-target-sync INPUT` or `tex-sync SESSION`. Review the returned
    candidate and report; compare the proposed Markdown with the current source.
    Inspect the candidate PDF. Do not modify sealed candidate files or hashes.
+   YAML paths in a preview use the checkpoint's frozen recipe; every field in
+   `profile.origins` reports `checkpoint`. A changed live resource must not replace
+   that snapshot. Resolve `RECIPE_CHANGED` with a new checkpoint after reconciling
+   the recipe. Move explicit printing within marked body blocks; switch between
+   automatic and explicit placement in Markdown before a new checkpoint.
 4. When the concrete change is accepted, pause editors/autosave for both
    sources. Apply using the matching `tex-target-apply INPUT --preview REPORT`
    or `tex-apply INPUT --preview REPORT` command. Freshness failures require a

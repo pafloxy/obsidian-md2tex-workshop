@@ -53,13 +53,22 @@ function parseSnapshot(source) {
         } catch { return metadataError('Use a JSON string array or an indented YAML list for bibliography files', i + 1); }
       } else if (!raw.trim() || raw.trim().startsWith('#')) {
         const entries = [];
-        while (i + 1 < end && /^\s+-\s+/.test(lines[i + 1])) {
+        while (i + 1 < end) {
+          const next = lines[i + 1];
+          if (!next.trim() || /^\s*#/.test(next)) { i++; continue; }
+          if (!/^\s/.test(next)) break;
+          if (!/^\s+-\s+/.test(next)) return metadataError('Use an indented list of bibliography paths, or [] for no resources', i + 2);
           i++;
           entries.push(scalar(lines[i].replace(/^\s+-\s+/, ''), i + 1));
         }
+        if (!entries.length) return metadataError('Provide bibliography paths or an explicit [] for no resources', i + 1);
         metadata[key] = entries;
       } else metadata[key] = scalar(raw, i + 1).split(',').map((entry) => entry.trim()).filter(Boolean);
-    } else metadata[key] = scalar(raw, i + 1);
+      if (metadata[key].some(entry => !entry.trim()) || (!metadata[key].length && !raw.trim().startsWith('['))) return metadataError('Bibliography paths must be nonempty; use [] for no resources', i + 1);
+    } else {
+      metadata[key] = scalar(raw, i + 1);
+      if (!metadata[key].trim()) return metadataError(`${key} must be nonempty; omit the key to inherit a value`, i + 1);
+    }
   }
   return { body: lines.slice(end + 1).join('\n'), bodyStartLine: end + 2, metadata };
 }

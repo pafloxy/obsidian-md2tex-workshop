@@ -206,6 +206,9 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   assert.equal(await fs.readFile(frame.result.artifacts.source, 'utf8'), source);
   assert.equal(await fs.readFile(path.join(vaultRoot, file.path), 'utf8'), '# Earlier saved draft\n');
   assert.equal(view.contentEl.emptyCount, 1);
+  assert.match(view.recipeEl.text, /basic-preamble\.tex \(default\)/);
+  assert.match(view.recipeEl.text, /pdflatex \(default\)/);
+  assert.equal(view.recipeEl.title, frame.result.profile.preamblePath);
   assert.equal(plugin.runtime.controller.state().current, true);
   await until(() => view.output.pdfStatus === 'ready');
   assert.match(value.embeds[0].file.path, /main\.pdf$/);

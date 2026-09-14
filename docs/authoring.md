@@ -70,6 +70,7 @@ Put a blank line between adjacent callouts and keep every line inside a callout 
 | Other callout types | Unnumbered titled quotations with a `GENERIC_CALLOUT` warning. No invented custom theorem environment. Algorithm callouts do not gain pseudocode semantics. |
 | `[ref{id}]`, `\cref{id}`, `\Cref{id}`, `\ref{id}`, `\eqref{id}` | Checked against the complete set of syntactically declared document labels. Forward and backward references behave equally. |
 | `[cite{key}]`, raw TeX citations | Preserved citations. Empty/invalid simple keys fail early; actual bibliography resolution is checked through TeX/BibTeX and the final log. Declare files as described in the CLI guide. |
+| `[printbibliography]` | One command on its own top-level line places the bibliography. Requires enabled YAML/control resources. Without the command, resources print at the end. Code/comments retain literal examples. |
 | `[caption](https://...)`, HTTP/mailto variants, `[caption](#explicit-id)` | Caption and destination retained as hyperlinks without fetching them. URLs must be appropriately percent-encoded. |
 | `[todo{...}]` | Visible bold annotation with parsed math/formatting inside it. No extra package or `\todo` definition required. |
 | `<!-- ... -->`, `%% ... %%` | Comments excluded from export and declaration checks, with source lines retained. A whole-line label comment in its defined ownership position declares a target. Code/raw TeX regions keep their own literal/comment rules. |
@@ -115,7 +116,8 @@ The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw hea
   catcodes, and arbitrary TeX expansion are not statically resolved. Complex
   authoring may require a TeX workflow or the explicit legacy adapter until a
   tested extension exists. The declaration table is not a TeX interpreter.
-- The EPTCS recipe has broad integration coverage. Custom preambles must provide
+- The basic article default supports the documented math, statement and reference
+  syntax. The broader EPTCS recipe remains explicitly selectable. Custom preambles must provide
   the environments/macros (`amsthm`, `hyperref`, etc.) required by their content.
   Named profile capability checks belong to M3.
 - Maps identify original lines or line ranges, not character positions. External

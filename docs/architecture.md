@@ -19,6 +19,7 @@ flowchart LR
 | `scripts/workshop.cjs` | Arguments, JSON output, process exit contract | Rendering or duplicated compiler policy |
 | `src/core/config.cjs`, `snapshot.cjs` | Explicit recipe and captured source | Editor state or implicit vault discovery |
 | `markdown.cjs`, `reverse.cjs`, `reconcile.cjs` | Forward grammar, exact inverse candidates and conservative reconciliation | Arbitrary TeX interpretation |
+| `bibliography.cjs` | Resource insertion, one print location and backend-independent body representation | File discovery or raw-command expansion |
 | `workshop.cjs`, `process.cjs`, `diagnostics.cjs` | Isolated compilation, tool limits and audited results | User-facing editor transactions |
 | `roundtrip.cjs`, `targets.cjs` | Checkpoints, ownership, freshness, backups and approved disk apply | Bypassing an actively edited source |
 | `protocol.cjs`, `jobs.cjs`, `capabilities.cjs` | Worker framing, snapshots, runtime identity and capabilities | AI providers |
@@ -30,6 +31,13 @@ A persistent TeX target and its checkpoint are shared mutable state. TeX edits
 must be reconciled before a new publication; recovery candidates must exactly
 regenerate the reviewed TeX or preserve it as an explicit raw island. Refuse
 ambiguous recovery instead of losing Markdown-only information.
+
+Ordinary configuration resolves YAML, then control fallbacks, then the basic
+article default. `buildFrozen` is an internal core entry for verified checkpoint
+recipes; serialized CLI/worker inputs cannot select it. It bypasses live YAML
+dependency resolution while preserving candidate syntax validation. Both routes
+use the same compiler and bibliography assembly. Recipe metadata edits require
+explicit reconciliation and a fresh checkpoint.
 
 AI repair remains unimplemented. Its eventual provider boundary may return a
 bounded syntax proposal. Deterministic context preparation, schema validation,

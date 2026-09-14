@@ -180,8 +180,8 @@ in the new host, even when their stored values are true.
 | `latexmkCommand` | `latexmk`; command or absolute executable path, passed without a shell. |
 | `outputFolder` | `md2tex-workshop-output`; a normal vault-relative folder, outside `.obsidian`. Earlier output folders are retained. |
 | `buildTimeoutMs` | 30000; integer 100–300000. Worker total deadline adds 5000 ms for preparation/publication, then allows a 1500 ms termination grace period plus at most 1000 ms to confirm process-group exit. |
-| `engineOverride` | Empty: read the captured note/default; optional `pdflatex`, `xelatex`, `lualatex`. |
-| `preambleOverride` | Empty: read the captured note/default; optional absolute or vault-relative path. |
+| `engineOverride` | Control fallback when the note omits its engine; optional `pdflatex`, `xelatex`, `lualatex`. Empty uses the bundled default. |
+| `preambleOverride` | Control fallback when the note omits its preamble; optional absolute or vault-relative path. Empty uses the basic article default. |
 
 The source store, controller, worker client, view and host wiring have separate
 interfaces under `src/obsidian/`. The host exposes reverse preview without source apply or provider dispatch.
@@ -199,8 +199,11 @@ Source changes during preview still require a fresh preview. Applying through an
 open editor remains M3. Plugin load refreshes only its own companion module cache,
 so a native reload can load newly installed code without restarting Obsidian.
 The bundled companion resolves its assets relative to installation and receives
-an explicit vault root. A default EPTCS preamble and existing structural converter
-remain in use; no new converter or renderer is introduced.
+an explicit vault root. The shared core uses a basic article default; YAML
+preamble, bibliography and engine fields take priority over control fallbacks.
+The summary shows the last build's resolved settings and their origins. The
+broader EPTCS preamble remains explicitly selectable. Bibliography syntax is
+compiled by the core; the adapter adds no Markdown renderer.
 
 ## Worker execution and retained evidence
 
