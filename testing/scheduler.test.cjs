@@ -79,6 +79,22 @@ test('rapid editor and saved events coalesce after a quiet interval and keep the
   value.calls[1].resolve('latest'); await settle();
 });
 
+test('a timer arriving before the recorded deadline rearms the remaining automatic delay', async () => {
+  const value = fixture(); value.scheduler.configure({ enabled: true, delayMs: 100 });
+  value.scheduler.changed(value.file);
+  value.advance(99);
+  const [id, timer] = [...value.timers][0];
+  value.timers.delete(id); timer.callback();
+  assert.equal(value.calls.length, 0, 'the quiet interval must finish before compiling');
+  assert.equal(value.timers.size, 1, 'an early callback must not strand automatic work');
+  value.advance(1);
+  assert.equal(value.calls.length, 1);
+  assert.equal(value.calls[0].options.skipUnchanged, true);
+  value.calls[0].resolve('automatic'); await settle();
+  assert.equal(value.scheduler.automatic, null);
+  assert.equal(value.scheduler.running, null);
+});
+
 test('manual work precedes a due automatic follow-up and is never discarded on target switch', async () => {
   const value = fixture(); value.scheduler.configure({ enabled: true, delayMs: 100 });
   value.scheduler.changed(value.file); value.advance(100);

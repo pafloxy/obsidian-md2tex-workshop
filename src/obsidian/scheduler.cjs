@@ -68,7 +68,14 @@ class BuildScheduler {
   drain() {
     if (this.disposed || this.running || this.held) return;
     let job = this.queue.shift();
-    if (!job && this.automatic && this.automatic.due <= this.now()) {
+    if (!job && this.automatic) {
+      const remaining = this.automatic.due - this.now();
+      if (remaining > 0) {
+        // Timer arrival and the deadline clock may disagree; retain a wakeup for pending work.
+        this.clearTimer(this.timer);
+        this.timer = this.setTimer(() => { this.timer = null; this.drain(); }, remaining);
+        return;
+      }
       job = { ...this.automatic, auto: true }; this.automatic = null;
     }
     if (!job) return;
