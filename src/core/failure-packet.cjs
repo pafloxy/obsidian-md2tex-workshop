@@ -8,6 +8,7 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
 const { sourceHash: hash } = require('./protocol.cjs');
+const { sealPacket, packetVersion } = require('./explanation-contract.cjs');
 
 const limits = Object.freeze({ packetBytes: 48 * 1024, resultBytes: 256 * 1024, sourceBytes: 1024 * 1024, logBytes: 256 * 1024, excerptBytes: 4096 });
 
@@ -19,19 +20,13 @@ function clip(text, bytes) {
   return new TextDecoder('utf-8', { ignoreBOM: true }).decode(Buffer.from(String(text)).subarray(0, bytes), { stream: true });
 }
 
-/** Freeze the assembled JSON contract so later UI changes cannot mutate its evidence. */
-function freeze(value) {
-  if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
-  return value;
-}
-
 /** Classify recorded diagnostics without guessing a Markdown error from tool failures. */
 function classifyFailure(diagnostic, stage) {
   const code = diagnostic.code || 'BUILD_FAILED';
-  if (/PROCESS_UNAVAILABLE|TOOL_UNAVAILABLE|UNSUPPORTED_NODE|TOOLCHAIN|START_FAILED/.test(code)) return 'tool-setup';
+  if (stage === 'target-publication') return 'target-publication';
+  if (/PROCESS_UNAVAILABLE|NODE_UNAVAILABLE|TOOL_UNAVAILABLE|UNSUPPORTED_NODE|TOOLCHAIN|START_FAILED/.test(code)) return 'tool-setup';
   if (/TIMEOUT|OUTPUT_LIMIT|CANCELLED|BUILD_BUSY/.test(code)) return 'execution';
   if (/CITATION|BIBLIOGRAPHY/.test(code)) return 'bibliography';
-  if (stage === 'target-publication') return 'target-publication';
   if (/UNSUPPORTED_/.test(code)) return 'unsupported-syntax';
   if (['configuration', 'environment'].includes(stage)) return 'configuration';
   if (['preflight', 'conversion'].includes(stage)) return 'markdown';
@@ -41,10 +36,14 @@ function classifyFailure(diagnostic, stage) {
 }
 
 /** Construct an immutable packet from exact captured bytes, never the current note. */
-function createFailurePacket({ result, sourceText, logText = '', logTruncated = false }) {
+function createFailurePacket({ result: original, sourceText, logText = '', logTruncated = false, context = {} }) {
+  const targetFailed = original?.status === 'success' && original.target?.status === 'error';
+  const result = targetFailed ? { ...original, status: 'error', stage: 'target-publication', diagnostics: [
+    { severity: 'error', stage: 'target-publication', code: original.target.code || 'TARGET_FAILED', message: original.target.message || 'Linked target publication failed.' },
+  ] } : original;
   if (!result || result.schemaVersion !== 'workshop-result.v1' || result.command !== 'build' || result.status !== 'error') fail('FAILURE_REQUIRED', 'Select a recorded failed build result.');
   if (!result.source || !path.isAbsolute(result.source.path || '') || !/^[a-f0-9]{64}$/.test(result.source.sha256 || '')
-    || !/^[A-Za-z0-9_-]{1,100}$/.test(result.attemptId || '')) fail('FAILURE_EVIDENCE_MISSING', 'The failure has no retained source/attempt identity.');
+    || (!/^[A-Za-z0-9_-]{1,100}$/.test(result.attemptId || '') && !/^[A-Za-z0-9_-]{1,100}$/.test(context.jobId || ''))) fail('FAILURE_EVIDENCE_MISSING', 'The failure has no retained source/attempt identity.');
   if (typeof sourceText !== 'string' || Buffer.byteLength(sourceText) > limits.sourceBytes || hash(sourceText) !== result.source.sha256) fail('FAILURE_SOURCE_CHANGED', 'Captured failing source is missing, oversized or changed.');
   if (Buffer.from(sourceText).toString('utf8') !== sourceText) fail('FAILURE_SOURCE_CHANGED', 'Captured source is not exact UTF-8.');
   if (typeof logText !== 'string' || Buffer.byteLength(logText) > limits.logBytes) fail('FAILURE_EVIDENCE_LIMIT', 'Log input exceeds its bounded prefix.');
@@ -53,7 +52,7 @@ function createFailurePacket({ result, sourceText, logText = '', logTruncated = 
   const first = errors[0];
   const stage = clip(first.stage || result.stage || 'unknown', 64);
   const replacements = [[result.source.path, '[source]'], [result.artifacts?.attempt, '[attempt]'],
-    [result.profile?.preamblePath, '[preamble]'], [result.converter?.path, '[converter]'],
+    [original.target?.target, '[target]'], [context.directory, '[evidence]'], [result.profile?.preamblePath, '[preamble]'], [result.converter?.path, '[converter]'],
     ...(result.dependencies || []).map(item => [item.path, '[resource]'])].filter(([name]) => typeof name === 'string' && name.length).sort((a, b) => b[0].length - a[0].length);
   /** Remove known local resource paths from prose evidence; source excerpts remain literal. */
   function redact(text) { for (const [name, token] of replacements) text = text.split(name).join(token); return text; }
@@ -83,20 +82,19 @@ function createFailurePacket({ result, sourceText, logText = '', logTruncated = 
     const raw = redact(logLines.slice(start, index + 7).join('\n'));
     const text = clip(raw, limits.excerptBytes);
     evidence.push({ id: 'log-1', kind: 'log', startLine: start + 1, endLine: start + text.split('\n').length, text, truncated: text !== raw });
-  } else omissions.push('No TeX log was retained for this failed stage.');
+  } else omissions.push('No TeX log was supplied for this failure.');
   if (logTruncated) omissions.push('Only the first 256 KiB of the TeX log was inspected.');
-  omissions.push('Historical full-toolchain identity is unavailable; the recorded converter digest is retained.');
+  if (!context.toolchainFingerprint) omissions.push('Historical full-toolchain identity was not recorded.');
+  if (targetFailed) omissions.push('PDF compilation succeeded; linked target publication failed.');
   const recipeFingerprint = result.profile ? hash(JSON.stringify({ profile: result.profile, dependencies: result.dependencies || [] })) : null;
   const identity = { documentId: hash(result.source.path), sourceHash: result.source.sha256, recipeFingerprint,
-    converterHash: result.converter?.sha256 || null, toolchainFingerprint: null };
+    converterHash: result.converter?.sha256 || null, toolchainFingerprint: context.toolchainFingerprint || null, resolvedRecipeHash: context.resolvedRecipeHash || null };
   const category = classifyFailure(diagnostic, stage);
-  const failureId = hash(JSON.stringify({ ...identity, category, diagnostic }));
-  const packet = { schemaVersion: 'workshop-failure-packet.v1', command: 'failure-packet', status: 'success', scope: 'explanation-only',
-    identity: { ...identity, attemptId: result.attemptId, failureId }, category, summary: diagnostic.message.replace(/[\r\n\t]+/g, ' '),
+  const packet = { schemaVersion: packetVersion, command: 'failure-packet', status: 'success', scope: 'explanation-only', origin: context.origin || 'attempt',
+    buildStatus: Object.hasOwn(context, 'buildStatus') ? context.buildStatus : original.status,
+    identity: { ...identity, attemptId: result.attemptId || null, jobId: context.jobId || null }, category, summary: diagnostic.message.replace(/[\r\n\t]+/g, ' '),
     primaryEvidenceId: 'diagnostic-1', evidence, omittedDiagnostics: errors.length - 1, omissions };
-  packet.packetId = hash(JSON.stringify(packet));
-  if (Buffer.byteLength(JSON.stringify(packet)) > limits.packetBytes) fail('FAILURE_EVIDENCE_LIMIT', 'Packet exceeds 48 KiB.');
-  return freeze(packet);
+  return sealPacket(packet);
 }
 
 /** Read regular unaliased evidence with bounded allocation and stable file metadata. */
@@ -120,19 +118,28 @@ async function readEvidence(filename, maximum, prefix = false) {
 async function readFailurePacket(resultPath) {
   resultPath = path.resolve(resultPath);
   const record = await readEvidence(resultPath, limits.resultBytes);
-  const result = JSON.parse(record.bytes.toString('utf8'));
+  let result = JSON.parse(record.bytes.toString('utf8'));
   const directory = path.dirname(resultPath);
   if (path.basename(resultPath) !== 'result.json' || result.artifacts?.result !== resultPath || result.artifacts?.attempt !== directory
     || result.attemptId !== path.basename(directory) || result.artifacts?.source !== path.join(directory, 'source.md')) fail('FAILURE_OWNER_MISMATCH', 'Use the original attempt result.json with matching ownership.');
+  let targetRecord;
+  if (result.status === 'success') {
+    try {
+      targetRecord = await readEvidence(path.join(directory, 'target-publication.json'), limits.resultBytes);
+      const target = JSON.parse(targetRecord.bytes.toString('utf8'));
+      if (target?.status === 'error' && typeof target.code === 'string' && typeof target.message === 'string') result = { ...result, target };
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   const source = await readEvidence(path.join(directory, 'source.md'), limits.sourceBytes);
   const sourceText = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(source.bytes);
   let log = { bytes: Buffer.alloc(0), truncated: false };
-  try { log = await readEvidence(path.join(directory, 'main.log'), limits.logBytes, true); }
+  try { if (result.status !== 'success') log = await readEvidence(path.join(directory, 'main.log'), limits.logBytes, true); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   const packet = createFailurePacket({ result, sourceText, logText: new TextDecoder('utf-8', { ignoreBOM: true }).decode(log.bytes, { stream: log.truncated }), logTruncated: log.truncated });
   if (!(await readEvidence(resultPath, limits.resultBytes)).bytes.equals(record.bytes)
     || !(await readEvidence(path.join(directory, 'source.md'), limits.sourceBytes)).bytes.equals(source.bytes)) fail('FAILURE_EVIDENCE_CHANGED', 'Evidence changed while preparing the packet.');
+  if (targetRecord && !(await readEvidence(path.join(directory, 'target-publication.json'), limits.resultBytes)).bytes.equals(targetRecord.bytes)) fail('FAILURE_EVIDENCE_CHANGED', 'Target publication record changed while preparing evidence.');
   return packet;
 }
 
-module.exports = { limits, classifyFailure, createFailurePacket, readFailurePacket };
+module.exports = { limits, classifyFailure, createFailurePacket, readFailurePacket, readEvidence };

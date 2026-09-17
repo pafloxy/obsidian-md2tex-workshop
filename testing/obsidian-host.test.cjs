@@ -267,6 +267,7 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   const packetRun = await execute(process.execPath, [plugin.runtime.configuration().cliPath, 'failure-packet', failed.result.artifacts.result], { cwd: vaultRoot });
   const packet = JSON.parse(packetRun.stdout);
   assert.equal(packetRun.code, 0);
+  assert.equal(packet.schemaVersion, 'workshop-failure-packet.v2');
   assert.equal(packet.identity.sourceHash, failed.sourceHash);
   assert.equal(packet.evidence[0].code, 'UNRESOLVED_REFERENCE');
   assert.match(packet.evidence.find(item => item.kind === 'source').text, /missing/);

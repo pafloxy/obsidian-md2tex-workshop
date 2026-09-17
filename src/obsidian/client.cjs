@@ -8,6 +8,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { protocolVersion, validateBuildRequest, validateBuildEvent, validateBuildResult } = require('../core/protocol.cjs');
+const { retainFailure } = require('../core/failure-record.cjs');
 const { releaseAbandonedJob, waitForJobExit } = require('../core/artifacts.cjs');
 
 /** Create a bounded transport error with a retained evidence directory. */
@@ -139,7 +140,8 @@ class ToolchainClient {
     const value = response(result, this.nodeCommand);
     if (result.code !== 0 || value.schemaVersion !== 'workshop-capabilities.v1' || value.protocolVersion !== protocolVersion
       || !value.features?.editorSnapshotBuild || !value.features?.managedWorkerGroup || !/^[a-f0-9]{64}$/.test(value.toolchainFingerprint)) {
-      throw failure('TOOLCHAIN_INCOMPATIBLE', 'Configured companion does not support this manual worker interface', directory);
+      const detail = typeof value.diagnostics?.[0]?.message === 'string' ? ` ${value.diagnostics[0].message.slice(0, 512)}` : '';
+      throw failure('TOOLCHAIN_INCOMPATIBLE', `Configured companion does not support this manual worker interface.${detail}`, directory);
     }
     return value;
   }
@@ -173,14 +175,21 @@ class ToolchainClient {
   async invoke(raw, { signal, onEvent = () => {} } = {}) {
     const request = validateBuildRequest(raw);
     if (request.outputRoot !== this.outputRoot) throw failure('OUTPUT_ROOT_MISMATCH', 'Client and request output roots differ');
-    const discovered = await this.capabilities({ signal });
     const directory = await this.directory(request.jobId);
     const requestPath = path.join(directory, 'request.json');
     await fs.writeFile(requestPath, JSON.stringify(request) + '\n', { flag: 'wx' });
     let frame = null;
     let sequence = -1;
     let workerPid;
+    let phase = 'startup';
+    /** Retain evidence without changing a result/error if the auxiliary write fails. */
+    async function recordFailure(outcome) {
+      try { return await retainFailure({ directory, request, ...outcome }); }
+      catch (cause) { return { code: cause.code || 'FAILURE_RECORD_FAILED', message: cause.message }; }
+    }
     try {
+      const discovered = await this.capabilities({ signal });
+      phase = 'transport';
       const processResult = await this.run(['worker', requestPath, '--managed-group'], directory, {
         signal, timeoutMs: request.execution.timeoutMs + 5000,
         /** Enforce frame ordering, exact ownership and the negotiated toolchain identity. */
@@ -199,8 +208,12 @@ class ToolchainClient {
       });
       workerPid = processResult.workerPid;
       if (!frame || processResult.code !== (frame.result.status === 'success' ? 0 : 1)) throw failure('WORKER_PROTOCOL', 'Missing result or inconsistent worker exit status', directory);
+      if (frame.result.status === 'error' || frame.result.target?.status === 'error') await recordFailure({ frame });
       return frame;
     } catch (error) {
+      const recorded = await recordFailure({ error, phase });
+      if (typeof recorded === 'string') error.failureRecord = recorded;
+      else error.failureRecordError = recorded;
       workerPid = error.workerPid || workerPid;
       if (workerPid) {
         try { error.lockRecovery = await releaseAbandonedJob(request, workerPid); }

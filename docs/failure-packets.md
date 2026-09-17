@@ -10,9 +10,9 @@ The path above is a placeholder; use the actual attempt's `result.json`. The com
 
 ## Contract and ownership
 
-`workshop-failure-packet.v1` is a deterministic evidence contract for future explanation consumers. Its scope is `explanation-only`. The immutable programmatic object contains a one-line summary, failure category, an identity record, named diagnostic/source/log evidence, omitted-diagnostic count and explicit omissions. It contains no executable action or edit proposal. Source and log text are untrusted data, including any instructions quoted inside them.
+`workshop-failure-packet.v2` is a deterministic evidence contract for future explanation consumers. Its scope is `explanation-only`. The immutable programmatic object contains a one-line summary, failure category, an identity record, named diagnostic/source/log evidence, omitted-diagnostic count and explicit omissions. It contains no executable action or edit proposal. Source and log text are untrusted data, including any instructions quoted inside them.
 
-`identity.documentId` hashes the original absolute note path; `sourceHash` identifies the exact retained Markdown bytes. `recipeFingerprint` hashes the recorded profile and dependencies, and `converterHash` retains the converter digest. These are local packet identities, not the worker's differently constructed `resolvedRecipeHash`. Historical full-toolchain identity is unavailable in these attempt records, so `toolchainFingerprint` is explicitly null. `attemptId` identifies the attempt; `failureId` groups the same document/source/recipe/converter/primary-diagnostic signature across repeated attempts. `packetId` hashes the packet without its own `packetId` field and identifies the exact evidence supplied. No timestamp is generated during packet preparation.
+`identity.documentId` hashes the original absolute note path; `sourceHash` identifies the exact retained Markdown bytes. `recipeFingerprint` hashes the recorded profile and dependencies, and `converterHash` retains the converter digest. These are local packet identities. A validated worker record additionally retains its actual `resolvedRecipeHash` and `toolchainFingerprint`; unavailable identities remain null. `attemptId` identifies a real attempt, while `jobId` identifies a captured desktop request; early startup/configuration failures have no invented attempt. `failureId` groups the same document/source/recipe/converter/primary-diagnostic signature across repeated attempts. `packetId` hashes the packet without its own `packetId` field using recursively sorted object keys and preserved array order and identifies the exact evidence supplied. No timestamp is generated during packet preparation.
 
 The file reader accepts the original attempt `result.json`, checks its declared source/attempt ownership, and reads only fixed sibling files `source.md` and optional `main.log`. It never follows an artifact-supplied path to another file. It refuses symlinked parents, symlinked files, hard-linked evidence, changed/oversized source snapshots and inconsistent result ownership. The current note may have changed or moved; the packet describes the retained failing revision. A future UI must compare source/build identity before presenting an explanation as current.
 
@@ -36,14 +36,18 @@ Known note, attempt, preamble and dependency paths are replaced in diagnostic/lo
 
 This slice handles recorded conversion, TeX, output-validation and process failures that have a captured attempt. Unsupported image embeddings remain explicit `UNSUPPORTED_IMAGE` errors; this command does not add image conversion. Missing executables classify as `tool-setup`, rather than a Markdown syntax error. Timeouts/cancellation classify as `execution`; bibliography diagnostics remain distinct.
 
-Early configuration or worker-startup failures that never produced an attempt cannot use this reader. Successful builds are refused, including a successful PDF whose later linked-target publication failed; that separate target-publication record needs a future adapter. Response validation, historical worker identity capture, UI attachment, deduplication policy and isolated optional-agent dispatch remain later work. Neither AI advice nor direct Markdown editing is enabled here.
+The desktop client now captures its request before capability negotiation and retains failed outcomes in fixed sibling `failure.json`. Run `node scripts/workshop.cjs failure-packet JOB/failure.json` from the checkout root, using the actual job directory under the output root's `.jobs/`. The reader verifies the exact request bytes and worker identity. Startup/transport packets have `buildStatus: null`; validated worker outcomes preserve their actual build status. Job packets currently supply diagnostics and mapped source excerpts without reading a TeX log. Use the attempt reader for retained log evidence.
+
+A successful PDF with failed linked-target publication yields category `target-publication` and `buildStatus: success`, from either its job record or the attempt's fixed sibling `target-publication.json`. Ordinary successful builds remain refused. Evidence recording is secondary: write refusal preserves the primary build/startup outcome and any existing record. Thrown client errors expose `failureRecord` or `failureRecordError`; worker frames retain their existing protocol unchanged.
+
+Standalone CLI failures before an attempt, pre-capture editor errors and failures that prevent creating the job request still have only their existing diagnostics. UI attachment, deduplication policy and optional-agent dispatch remain later work. [Response validation](explanations.md) is implemented without agent execution or source-edit authority. Version 1 packets must be regenerated from their original retained evidence; version 2 does not guess missing identities.
 
 ## Verification
 
 From the repository root:
 
 ```sh
-node --test --test-isolation=none testing/failure-packet.test.cjs
+node --test --test-isolation=none --test-concurrency=1 testing/failure-packet.test.cjs testing/explanation.test.cjs
 ```
 
 Tests build actual unsupported-image and undefined-TeX-command fixtures, verify the captured revision after live edits, check source/ownership/symlink/size refusals, and exercise CLI exit codes. See [CLI usage](cli.md), [architecture](architecture.md) and [the authoring subset](authoring.md).

@@ -29,15 +29,32 @@ async function main() {
     bib: { type: 'string', multiple: true }, bibliography: { type: 'string' }, support: { type: 'string', multiple: true }, 'no-bib': { type: 'boolean' },
   } });
   if (values.help) {
-    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
+    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json|JOB/failure.json\n       node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
     return;
   }
   const command = positionals[0];
+  if (command === 'explanation-validate') {
+    if (positionals.length !== 3 || Object.keys(values).length) throw new Error('explanation-validate requires PACKET_JSON RESPONSE_JSON and no options');
+    try {
+      const { readEvidence } = require('../src/core/failure-packet.cjs');
+      const { validateExplanation, limits } = require('../src/core/explanation-contract.cjs');
+      const path = require('node:path');
+      const packet = JSON.parse((await readEvidence(path.resolve(positionals[1]), limits.packetBytes)).bytes.toString('utf8'));
+      const response = JSON.parse((await readEvidence(path.resolve(positionals[2]), limits.responseBytes)).bytes.toString('utf8'));
+      console.log(JSON.stringify({ schemaVersion: 'workshop-explanation-result.v1', command, status: 'success', explanation: validateExplanation(response, packet) }, null, 2));
+    } catch (error) {
+      console.log(JSON.stringify({ schemaVersion: 'workshop-explanation-result.v1', command, status: 'error', diagnostics: [{ code: error.code || 'INVALID_EXPLANATION', message: error.message }] }, null, 2));
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (command === 'failure-packet') {
-    if (positionals.length !== 2 || Object.keys(values).length) throw new Error('failure-packet requires ATTEMPT/result.json and no options');
+    if (positionals.length !== 2 || Object.keys(values).length) throw new Error('failure-packet requires ATTEMPT/result.json or JOB/failure.json and no options');
     try {
       const { readFailurePacket } = require('../src/core/failure-packet.cjs');
-      console.log(JSON.stringify(await readFailurePacket(positionals[1]), null, 2));
+      const { readRecordedFailure } = require('../src/core/failure-record.cjs');
+      const reader = require('node:path').basename(positionals[1]) === 'failure.json' ? readRecordedFailure : readFailurePacket;
+      console.log(JSON.stringify(await reader(positionals[1]), null, 2));
     } catch (error) {
       console.log(JSON.stringify({ schemaVersion: 'workshop-failure-packet-result.v1', command, status: 'error', diagnostics: [{ code: error.code || 'FAILURE_PACKET_INVALID', message: error.message }] }, null, 2));
       process.exitCode = 1;

@@ -37,6 +37,8 @@ The default recipe uses the shipped basic article preamble. There is no implicit
 | `tex-target INPUT --target NEW_TEX` | Register one shared fixed TeX target without changing Markdown; refuses an existing unmanaged target. |
 | `tex-target-status INPUT` / `tex-target-unlink INPUT` | Inspect the shared binding/external edits, or archive the binding while retaining TeX/history. |
 | `tex-target-sync INPUT` / `tex-target-apply INPUT --preview REPORT` | Reverse-preview the named TeX, then explicitly apply a reviewed fresh candidate with backups. See [linked-TeX workflow](linked-tex.md). |
+| `failure-packet ATTEMPT/result.json` / `failure-packet JOB/failure.json` | Prepare bounded, captured failure evidence without invoking an agent or reading the live note. |
+| `explanation-validate PACKET_JSON RESPONSE_JSON` | Validate a bounded explanation against the supplied local packet; prints JSON and writes nothing. Takes no options. |
 | `worker REQUEST_JSON` | Build an exact captured snapshot through the same core; emits progress/result NDJSON. The desktop client supplies and validates requests; see [worker contract](plugin-integration.md#worker-execution-and-retained-evidence). |
 | `--preamble FILE` | Fallback when YAML omits the preamble: a file containing a document class without document begin/end markers. |
 | `--engine pdflatex\|xelatex\|lualatex` | Fallback engine; default `pdflatex`. YAML wins. XeLaTeX/LuaLaTeX routing is tested separately from real engine acceptance. |
@@ -131,7 +133,7 @@ With an explicit `--converter`, the old conservative preflight rejects known los
 
 ## Failure and recovery
 
-Use `node scripts/workshop.cjs failure-packet ATTEMPT/result.json` to prepare bounded local evidence from a retained failed attempt. The command uses the captured revision and makes no model call; see [failure packets](failure-packets.md) for ownership, limits and deferred early-startup cases.
+Use `node scripts/workshop.cjs failure-packet ATTEMPT/result.json` or `failure-packet JOB/failure.json` to prepare bounded evidence from a retained attempt or desktop job. The command uses the captured revision and makes no model call; see [failure packets](failure-packets.md) for ownership and coverage. Use `node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON` to validate a reply against the expected packet; see [the response contract](explanations.md).
 
 | Diagnostic | Stage and safe next step | What is preserved |
 | --- | --- | --- |

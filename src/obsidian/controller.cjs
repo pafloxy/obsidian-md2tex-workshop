@@ -150,7 +150,7 @@ class BuildController {
       await this.refreshTarget(file);
       return result;
     } catch (error) {
-      if (!this.disposed) { record.publication++; record.diagnostic = { code: error.code || 'BUILD_FAILED', message: error.message, ...(error.directory ? { directory: error.directory } : {}) }; }
+      if (!this.disposed) { record.publication++; record.diagnostic = { code: error.code || 'BUILD_FAILED', message: error.message, ...(error.directory ? { directory: error.directory } : {}), ...(error.failureRecord ? { failureRecord: error.failureRecord } : {}) }; }
       throw error;
     } finally {
       if (this.active === active) this.active = null;
