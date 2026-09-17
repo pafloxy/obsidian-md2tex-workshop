@@ -23,16 +23,34 @@ async function main() {
     prefer: { type: 'string' }, target: { type: 'string' },
     preview: { type: 'string' },
     'body-only': { type: 'boolean' }, 'managed-group': { type: 'boolean' },
+    profile: { type: 'string' }, 'allow-trusted-agent': { type: 'boolean' },
     'out-dir': { type: 'string' }, converter: { type: 'string' },
     python: { type: 'string' }, latexmk: { type: 'string' }, 'timeout-ms': { type: 'string' },
     preamble: { type: 'string' }, engine: { type: 'string' }, 'vault-root': { type: 'string' },
     bib: { type: 'string', multiple: true }, bibliography: { type: 'string' }, support: { type: 'string', multiple: true }, 'no-bib': { type: 'boolean' },
   } });
   if (values.help) {
-    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json|JOB/failure.json\n       node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
+    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json|JOB/failure.json\n       node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON\n       node scripts/workshop.cjs agent-explain PACKET_JSON --profile PROFILE_JSON --allow-trusted-agent\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nAgent invocation is manual and trusted; restricted mode refuses until isolation is implemented.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
     return;
   }
   const command = positionals[0];
+  if (command === 'agent-explain') {
+    if (positionals.length !== 2 || !values.profile || Object.keys(values).some(key => !['profile', 'allow-trusted-agent'].includes(key))) throw new Error('agent-explain requires PACKET_JSON --profile PROFILE_JSON and optional --allow-trusted-agent');
+    try {
+      const path = require('node:path');
+      const { readEvidence } = require('../src/core/failure-packet.cjs');
+      const { limits } = require('../src/core/explanation-contract.cjs');
+      const { explainWithAgent } = require('../src/core/agent-dispatch.cjs');
+      const packet = JSON.parse((await readEvidence(path.resolve(positionals[1]), limits.packetBytes)).bytes.toString('utf8'));
+      const profile = JSON.parse((await readEvidence(path.resolve(values.profile), 8192)).bytes.toString('utf8'));
+      const result = await explainWithAgent(packet, profile, { allowTrusted: values['allow-trusted-agent'] === true, scratchRoot: path.resolve(__dirname, '../tmp') });
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      console.log(JSON.stringify({ schemaVersion: 'workshop-agent-explanation-result.v1', command, status: 'error', diagnostics: [{ code: error.code || 'AGENT_FAILED', message: error.message }] }, null, 2));
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (command === 'explanation-validate') {
     if (positionals.length !== 3 || Object.keys(values).length) throw new Error('explanation-validate requires PACKET_JSON RESPONSE_JSON and no options');
     try {

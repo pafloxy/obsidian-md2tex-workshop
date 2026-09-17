@@ -39,6 +39,7 @@ The default recipe uses the shipped basic article preamble. There is no implicit
 | `tex-target-sync INPUT` / `tex-target-apply INPUT --preview REPORT` | Reverse-preview the named TeX, then explicitly apply a reviewed fresh candidate with backups. See [linked-TeX workflow](linked-tex.md). |
 | `failure-packet ATTEMPT/result.json` / `failure-packet JOB/failure.json` | Prepare bounded, captured failure evidence without invoking an agent or reading the live note. |
 | `explanation-validate PACKET_JSON RESPONSE_JSON` | Validate a bounded explanation against the supplied local packet; prints JSON and writes nothing. Takes no options. |
+| `agent-explain PACKET_JSON --profile PROFILE_JSON --allow-trusted-agent` | Manually invoke an explicitly trusted custom wrapper and validate its reply. See [local agent bridge](agent-bridge.md). |
 | `worker REQUEST_JSON` | Build an exact captured snapshot through the same core; emits progress/result NDJSON. The desktop client supplies and validates requests; see [worker contract](plugin-integration.md#worker-execution-and-retained-evidence). |
 | `--preamble FILE` | Fallback when YAML omits the preamble: a file containing a document class without document begin/end markers. |
 | `--engine pdflatex\|xelatex\|lualatex` | Fallback engine; default `pdflatex`. YAML wins. XeLaTeX/LuaLaTeX routing is tested separately from real engine acceptance. |
@@ -158,7 +159,7 @@ Exit status is `0` for a successful command, `1` for a diagnosed build/environme
 
 ## Local effects and trust
 
-The CLI does not access Obsidian's UI, change settings, deploy plugins, invoke agent-workbench, send messages, or offer network/cloud features. It creates files only under the chosen output root during builds; `doctor` and `status` create nothing. Tests keep all generated data under project `tmp/`.
+The CLI does not access Obsidian's UI, change settings, deploy plugins or invoke an agent during compilation. Manual `agent-explain` executes the configured trusted wrapper and may contact its cloud provider; it retains bounded job evidence under project `tmp/`. Builds write under their chosen output root; `doctor` and `status` create nothing. Tests keep all generated data under project `tmp/`.
 
 The recipe uses `latexmk -norc` and disables TeX shell escape. It places TeX cache locations under the attempt. Configured executables, converter scripts, and raw TeX still need to be trusted: this is a local build tool, not a security sandbox. Captured process output is bounded to 20 MiB; the configured timeout applies to each external process. Timeout termination is process-group based on Linux; Windows child-tree behavior is not verified. In-process structural conversion has a 4 MiB body limit and bounded recursive nesting; `--timeout-ms` is not a wall-clock timeout for that synchronous conversion stage.
 

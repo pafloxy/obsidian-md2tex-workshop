@@ -1,6 +1,6 @@
 # Explanation response contract
 
-The CLI can validate a reply against one captured failure packet. This is a local deterministic boundary for a future optional agent; no provider, model, chat panel or edit application is enabled by these commands. See [failure packets](failure-packets.md) for evidence preparation and [authoring](authoring.md) for the supported Markdown subset.
+The CLI validates a reply against one captured failure packet. This deterministic validator makes no provider call or source edit. A separate, explicitly approved [manual local-agent bridge](agent-bridge.md) can supply an untrusted candidate reply; automatic dispatch and the chat panel are not yet enabled. See [failure packets](failure-packets.md) for evidence preparation and [authoring](authoring.md) for the supported Markdown subset.
 
 ## Local workflow
 
