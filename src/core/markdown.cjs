@@ -230,7 +230,7 @@ class DocumentParser {
       if (text.startsWith('[[', i) || text.startsWith('![[', i)) {
         const end = text.indexOf(']]', i);
         const embed = text[i] === '!';
-        this.report(embed ? 'UNSUPPORTED_IMAGE' : 'UNSUPPORTED_WIKILINK', embed ? 'Obsidian embeds require asset resolution in M3.' : 'Cross-note wiki-links need vault/anchor resolution; use an explicit local label reference or HTTP link for now.', line);
+        this.report(embed ? 'UNSUPPORTED_IMAGE' : 'UNSUPPORTED_WIKILINK', embed ? 'Obsidian file embeds are not supported yet. Inspect the embed on this line.' : 'Cross-note wiki-links need vault/anchor resolution; use an explicit local label reference or HTTP link for now.', line);
         if (end < 0) this.report('UNCLOSED_LINK', 'Close the wiki-link brackets.', line);
         push(embed ? 'image' : 'wiki', end < 0 ? text.length : end + 2); continue;
       }
@@ -243,7 +243,7 @@ class DocumentParser {
           if (end < 0) { this.report('UNCLOSED_LINK', 'Close the Markdown link destination.', line); push('text', text.length); continue; }
           let target = text.slice(captionEnd + 1, end - 1);
           if (target.startsWith('<') && target.endsWith('>')) target = target.slice(1, -1);
-          if (embed) this.report('UNSUPPORTED_IMAGE', 'Figure resolution belongs to M3; no image will be silently omitted.', line);
+          if (embed) this.report('UNSUPPORTED_IMAGE', 'Markdown image embeddings are not supported yet. Inspect the image on this line.', line);
           else {
             if (target.startsWith('#')) {
               try { target = '#' + decodeURIComponent(target.slice(1)); }
