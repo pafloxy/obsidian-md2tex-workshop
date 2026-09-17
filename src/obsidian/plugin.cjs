@@ -17,7 +17,7 @@ const { renderPdf } = require('./pdf-embed.cjs');
 const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', autoBuildEnabled: false, buildDebounceMs: 600 });
 
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
-function createRuntime(plugin, api, { openPath } = {}) {
+function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
   const runtime = {
     plugin, api, sources, settings: { ...defaults }, disposed: false, review: null,
@@ -83,6 +83,26 @@ function createRuntime(plugin, api, { openPath } = {}) {
       const relative = path.relative(expected, filename);
       if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error('Output does not belong to this note');
       return filename;
+    },
+    /** Copy the selected note's last successful generated document, never its editable linked target. */
+    async copyGeneratedTex() {
+      if (!writeClipboard) throw new Error('Clipboard access is unavailable in this host');
+      const before = this.controller.state();
+      const filename = this.artifact('tex', { successful: true });
+      const sourcePath = before.target.path;
+      const handle = await fs.open(filename, 'r');
+      let text;
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('Generated TeX exceeds the 8 MiB clipboard limit or is not a regular file');
+        text = await handle.readFile('utf8');
+        if (Buffer.byteLength(text, 'utf8') > 8 * 1024 * 1024) throw new Error('Generated TeX exceeds the 8 MiB clipboard limit');
+      } finally { await handle.close(); }
+      const current = this.controller.state();
+      if (this.disposed || current.target?.path !== sourcePath || current.lastSuccess !== before.lastSuccess) throw new Error('The selected note or successful build changed. Copy again.');
+      await writeClipboard(text);
+      new api.Notice(`Copied generated TeX for ${sourcePath}${current.current ? '' : ' (last successful build; note has changed)'}.`);
+      return { filename, sourcePath, bytes: Buffer.byteLength(text, 'utf8') };
     },
     /** Open PDFs natively after indexing; open generated TeX in the user's associated editor. */
     async openArtifact(kind) {
@@ -224,6 +244,7 @@ function createRuntime(plugin, api, { openPath } = {}) {
         ['preview-linked-tex', 'Preview Linked TeX Changes as Markdown', () => this.previewLinked()],
         ['reveal-compiled-pdf', 'Open Rendered PDF Tab', () => this.openArtifact('pdf')],
         ['open-generated-tex', 'Open Generated TeX', () => this.openArtifact('tex')],
+        ['copy-generated-tex', 'Copy Generated TeX from Last Successful Build', () => this.copyGeneratedTex()],
         ['ask-agent-to-fix-compile-error', 'Explain Compilation Assistance Availability', () => { new api.Notice('AI assistance is off. Compilation diagnostics are available in the Workshop.'); }],
       ];
       for (const [id, name, action] of actions) plugin.addCommand({ id, name, callback: () => this.perform(action) });

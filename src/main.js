@@ -22,6 +22,8 @@ module.exports = class Md2TexWorkshopPlugin extends api.Plugin {
     this.runtime = createRuntime(this, api, {
       /** Open generated TeX only after an explicit user action. */
       openPath(filename) { return require('electron').shell.openPath(filename); },
+      /** Write plain generated TeX only after the explicit copy action. */
+      writeClipboard(text) { require('electron').clipboard.writeText(text); },
     });
     await this.runtime.start();
   }

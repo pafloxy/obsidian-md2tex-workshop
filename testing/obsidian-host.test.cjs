@@ -24,7 +24,7 @@ class Element {
   /** Accept host styling without making a renderer claim. */
   addClass() {}
   /** Create and retain a test child. */
-  createEl(tag, options = {}) { const child = new Element(); child.tag = tag; child.text = options.text || ''; this.children.push(child); return child; }
+  createEl(tag, options = {}) { const child = new Element(); child.tag = tag; child.text = options.text || ''; child.className = options.cls || ''; this.children.push(child); return child; }
   /** Create a div using the same host signature. */
   createDiv(options) { return this.createEl('div', options); }
   /** Update text as text, without executing Markdown or HTML. */
@@ -47,7 +47,7 @@ class Events {
 
 /** Build inert host interfaces around an isolated real vault directory. */
 function host(vaultRoot, saved) {
-  const notices = []; const opened = []; const external = []; const leaves = []; const embeds = [];
+  const notices = []; const opened = []; const external = []; const leaves = []; const embeds = []; const copied = [];
   /** Model the native renderer's parent-owned lifecycle. */
   class Component {
     /** Keep independently owned children. */
@@ -122,7 +122,7 @@ function host(vaultRoot, saved) {
     /** Keep the settings tab available without opening it. */
     addSettingTab(tab) { this.tab = tab; }
   }
-  return { app, api: { Plugin, TFile, MarkdownView, ItemView, Notice, PluginSettingTab, Component }, notices, opened, external, leaves, embeds };
+  return { app, api: { Plugin, TFile, MarkdownView, ItemView, Notice, PluginSettingTab, Component }, notices, opened, external, leaves, embeds, copied };
 }
 
 /** Wait for an asynchronous view to finish mounting without arbitrary long sleeps. */
@@ -179,7 +179,10 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   const entry = path.join(vaultRoot, '.obsidian/plugins/md2tex-workshop/main.js');
   const context = { module: { exports: {} },
     /** Inject only Obsidian and explicit external-open behavior; companion modules load normally. */
-    require(name) { if (name === 'obsidian') return value.api; if (name === 'electron') return { shell: { openPath: async filename => { value.external.push(filename); return ''; } } }; return require(name); },
+    require(name) { if (name === 'obsidian') return value.api; if (name === 'electron') return {
+      shell: { openPath: async filename => { value.external.push(filename); return ''; } },
+      clipboard: { writeText: text => { if (value.clipboardError) throw new Error(value.clipboardError); value.copied.push(text); } },
+    }; return require(name); },
   };
   vm.runInNewContext(await fs.readFile(entry, 'utf8'), context, { filename: entry });
   const plugin = new context.module.exports();
@@ -194,6 +197,16 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   await plugin.commands.get('open-md2tex-workshop').callback();
   const view = value.app.workspace.getLeavesOfType('md2tex-workshop-view')[0].view;
   await until(() => view.unsubscribe);
+  assert.deepEqual(view.contentEl.children[0].children.map(child => child.text), ['Build', 'Set TeX target']);
+  assert.equal(view.controlsEl.open, false);
+  assert.equal(view.detailsEl.open, false);
+  assert.equal(view.copyButton.disabled, true);
+  await plugin.commands.get('copy-generated-tex').callback();
+  assert.match(value.notices.pop(), /No tex output/);
+  assert.equal(value.copied.length, 0);
+  await view.linkButton.events.click();
+  assert.equal(view.controlsEl.open, true);
+  view.controlsEl.open = false;
   plugin.runtime.controller.togglePin();
   const other = new value.api.MarkdownView(new value.api.TFile('other.md'), '# Other note');
   value.app.workspace.active = { view: other };
@@ -210,6 +223,13 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   assert.match(view.recipeEl.text, /pdflatex \(default\)/);
   assert.equal(view.recipeEl.title, frame.result.profile.preamblePath);
   assert.equal(plugin.runtime.controller.state().current, true);
+  assert.equal(view.statusEl.hidden, true);
+  assert.equal(view.revisionEl.hidden, true);
+  assert.equal(view.copyButton.disabled, false);
+  await view.copyButton.events.click();
+  const generatedTex = await fs.readFile(frame.result.artifacts.tex, 'utf8');
+  assert.equal(value.copied.at(-1), generatedTex, 'the button copies the exact complete generated document');
+  assert.match(value.notices.at(-1), /Copied generated TeX for draft.md/);
   await until(() => view.output.pdfStatus === 'ready');
   assert.match(value.embeds[0].file.path, /main\.pdf$/);
   assert.equal(value.embeds[0].context.sourcePath, 'draft.md');
@@ -243,6 +263,12 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   assert.equal(failed.result.status, 'error');
   assert.equal(plugin.runtime.artifact('pdf'), frame.result.artifacts.pdf);
   assert.match(view.diagnosticEl.text, /UNRESOLVED_REFERENCE/);
+  assert.equal(view.statusEl.hidden, false);
+  assert.equal(view.revisionEl.hidden, false);
+  assert.equal(view.detailsEl.open, false, 'failure does not force expanded details');
+  await plugin.commands.get('copy-generated-tex').callback();
+  assert.equal(value.copied.at(-1), generatedTex, 'a failed build keeps the last successful TeX copyable');
+  assert.match(value.notices.at(-1), /last successful build; note has changed/);
   await plugin.commands.get('open-generated-tex').callback();
   assert.equal(value.external.at(-1), frame.result.artifacts.tex, 'a preflight failure has no generated TeX, so retain access to the last good TeX');
   assert.equal(view.sourceButton.disabled, false);
@@ -256,13 +282,28 @@ test('relocated packaged entry builds the pinned editor snapshot with AI off and
   assert.equal(view.contentEl.emptyCount, 1);
   assert.equal(plugin.saves, 0);
   assert.deepEqual(legacy.unrelated, { keep: 'exactly' });
+  const beforeFailure = value.copied.length;
+  value.clipboardError = 'Clipboard unavailable';
+  await view.copyButton.events.click();
+  assert.equal(value.copied.length, beforeFailure);
+  assert.equal(value.notices.at(-1), 'Clipboard unavailable');
+  value.clipboardError = null;
+  const switchingCopy = plugin.runtime.copyGeneratedTex();
+  plugin.runtime.controller.select(other.file, { force: true });
+  await assert.rejects(switchingCopy, /selected note or successful build changed/);
+  assert.equal(value.copied.length, beforeFailure);
+  plugin.runtime.controller.select(file, { force: true });
+  await fs.rename(frame.result.artifacts.tex, frame.result.artifacts.tex + '.retained');
+  await assert.rejects(() => plugin.runtime.copyGeneratedTex(), { code: 'ENOENT' });
+  assert.equal(value.copied.length, beforeFailure);
+  await fs.rename(frame.result.artifacts.tex + '.retained', frame.result.artifacts.tex);
   await view.onClose();
   const previous = view.statusEl.text;
   plugin.onunload();
   value.app.workspace.emit('editor-change', editor.editor, editor);
   assert.equal(view.statusEl.text, previous);
   await fs.writeFile(path.join(dir, 'validation.json'), JSON.stringify({ package: path.dirname(entry), success: frame.result, failure: failed.result,
-    checks: ['relocated entry', 'captured pinned editor', 'source unchanged', 'real PDF text and references', 'last-good PDF', 'native-open requests', 'stale diagnostics refused', 'stable DOM', 'no settings writes', 'no provider discovery'] }, null, 2) + '\n');
+    checks: ['relocated entry', 'captured pinned editor', 'source unchanged', 'real PDF text and references', 'last-good PDF', 'native-open requests', 'stale diagnostics refused', 'stable DOM', 'collapsed controls', 'exact TeX clipboard', 'failed-build clipboard fallback', 'note-switch clipboard refusal', 'clipboard errors', 'missing artifact refusal', 'no settings writes', 'no provider discovery'] }, null, 2) + '\n');
 });
 
 test('pane reveal awaits the public asynchronous host operation and surfaces its failure', async () => {
@@ -289,7 +330,10 @@ test('CLI target discovery, auto-build, manual queue and reverse preview coopera
   await fs.writeFile(path.join(dir, file.path), source);
   const editor = new value.api.MarkdownView(file, source);
   value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
-  const runtime = createRuntime(plugin, value.api, { openPath: async filename => { value.external.push(filename); return ''; } });
+  const runtime = createRuntime(plugin, value.api, {
+    openPath: async filename => { value.external.push(filename); return ''; },
+    writeClipboard: text => value.copied.push(text),
+  });
   t.after(() => runtime.dispose()); await runtime.start();
   const target = path.join(dir, 'stable.tex');
   const command = await execute(process.execPath, [path.join(root, 'scripts/workshop.cjs'), 'tex-target', path.join(dir, file.path), '--target', target], { cwd: root });
@@ -315,6 +359,14 @@ test('CLI target discovery, auto-build, manual queue and reverse preview coopera
   await fs.writeFile(path.join(dir, file.path), editor.text);
   await runtime.setAutoBuild(false);
   await fs.writeFile(target, (await fs.readFile(target, 'utf8')).replace('from the editor', 'from TeX review'));
+  const conflict = await runtime.build();
+  assert.equal(conflict.result.status, 'success');
+  assert.equal(conflict.result.target.code, 'TARGET_EDITED');
+  assert.equal(view.statusEl.hidden, false, 'successful PDF with failed target publication still has a visible failure');
+  assert.match(view.statusEl.text, /external edits/);
+  await runtime.copyGeneratedTex();
+  assert.match(value.copied.at(-1), /from the editor/);
+  assert.doesNotMatch(value.copied.at(-1), /from TeX review/, 'copy never chooses the independently edited linked target');
   const getLeaf = value.app.workspace.getLeaf;
   value.app.workspace.getLeaf = type => {
     const leaf = getLeaf(type); const open = leaf.openFile;

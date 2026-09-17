@@ -21,6 +21,7 @@
     "docs/authoring.md",
     "docs/cli.md",
     "docs/linked-tex.md",
+    "docs/panel.md",
     "docs/plugin-integration.md",
     "docs/releasing.md",
     "docs/roundtrip.md",

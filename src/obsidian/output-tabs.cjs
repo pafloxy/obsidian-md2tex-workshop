@@ -87,7 +87,7 @@ class OutputTabs {
     if (logKey !== this.logKey) { this.logEpoch++; this.logKey = logKey; this.logStatus = 'empty'; this.logPanel.setText(''); }
     if (!pdfKey) this.pdfPanel.setText('Build this note to see its PDF here.');
     if (!logKey) this.logPanel.setText(state.latest?.diagnostics?.length
-      ? 'No compiler log for this attempt. See the diagnostics above.' : 'No compiler log for this note yet.');
+      ? 'No compiler log for this attempt. Open Details and diagnostics.' : 'No compiler log for this note yet.');
     if (this.mode === 'pdf') void this.loadPdf(); else void this.loadLog();
   }
 

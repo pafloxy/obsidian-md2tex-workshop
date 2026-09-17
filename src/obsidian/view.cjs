@@ -23,32 +23,49 @@ function createViewClass(api, runtime) {
       root.addClass('md2tex-workshop-view', 'md2tex-workshop-manual');
       const toolbar = root.createDiv({ cls: 'md2tex-workshop-toolbar' });
       this.buildButton = this.button(toolbar, 'Build', () => runtime.build());
-      this.cancelButton = this.button(toolbar, 'Cancel', () => runtime.scheduler.cancel());
-      this.pinButton = this.button(toolbar, 'Pin note', () => runtime.controller.togglePin());
-      this.pdfButton = this.button(toolbar, 'Open PDF', () => runtime.openArtifact('pdf'));
-      this.texButton = this.button(toolbar, 'Open generated TeX', () => runtime.openArtifact('tex'));
-      const linking = root.createDiv({ cls: 'md2tex-workshop-toolbar' });
+      this.linkButton = this.button(toolbar, 'Set TeX target', () => {
+        this.controlsEl.open = true;
+        this.targetInput.focus?.();
+      });
+      this.targetEl = root.createDiv({ cls: 'md2tex-workshop-note' });
+      this.statusEl = root.createDiv({ cls: 'md2tex-workshop-status' });
+      this.statusEl.setAttribute('role', 'status');
+      this.revisionEl = root.createDiv({ cls: 'md2tex-workshop-freshness' });
+      this.controlsEl = this.disclosure(root, 'Build and TeX controls');
+      const controls = this.controlsEl.createDiv({ cls: 'md2tex-workshop-toolbar' });
+      this.cancelButton = this.button(controls, 'Cancel', () => runtime.scheduler.cancel());
+      this.pinButton = this.button(controls, 'Pin note', () => runtime.controller.togglePin());
+      this.pdfButton = this.button(controls, 'Open PDF', () => runtime.openArtifact('pdf'));
+      this.texButton = this.button(controls, 'Open generated TeX', () => runtime.openArtifact('tex'));
+      this.copyButton = this.button(controls, 'Copy generated TeX', () => runtime.copyGeneratedTex());
+      const linking = this.controlsEl.createDiv({ cls: 'md2tex-workshop-toolbar' });
       this.targetInput = linking.createEl('input', { type: 'text', placeholder: 'New .tex path, relative to this note' });
-      this.linkButton = this.button(linking, 'Set TeX target', () => runtime.setLinkedTarget(this.targetInput.value));
+      this.targetInput.setAttribute('aria-label', 'New TeX target path, relative to this note');
+      this.saveTargetButton = this.button(linking, 'Use this target', () => runtime.setLinkedTarget(this.targetInput.value));
       this.linkedButton = this.button(linking, 'Open linked TeX', () => runtime.openLinked());
       this.reverseButton = this.button(linking, 'Preview TeX changes', () => runtime.previewLinked());
-      const summary = root.createDiv({ cls: 'md2tex-workshop-summary' });
-      this.targetEl = summary.createDiv();
-      this.statusEl = summary.createDiv({ cls: 'md2tex-workshop-status' });
-      this.revisionEl = summary.createDiv();
+      this.output = new OutputTabs(api, runtime, this, root);
+      this.detailsEl = this.disclosure(root, 'Details and diagnostics');
+      const summary = this.detailsEl.createDiv({ cls: 'md2tex-workshop-summary' });
       this.recipeEl = summary.createDiv();
       this.linkEl = summary.createDiv();
       this.queueEl = summary.createDiv();
-      this.diagnosticEl = root.createEl('pre', { cls: 'md2tex-workshop-diagnostics' });
-      const actions = root.createDiv({ cls: 'md2tex-workshop-toolbar' });
+      this.diagnosticEl = this.detailsEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics' });
+      const actions = this.detailsEl.createDiv({ cls: 'md2tex-workshop-toolbar' });
       this.sourceButton = this.button(actions, 'Go to source', () => runtime.openDiagnostic());
-      this.output = new OutputTabs(api, runtime, this, root);
       this.unsubscribe = runtime.controller.subscribe(state => this.render(state));
       await runtime.controller.inspect();
       await runtime.controller.refreshTarget();
     }
     /** Release view subscriptions without cancelling a separately owned build or detaching leaves. */
     async onClose() { this.unsubscribe?.(); this.unsubscribe = null; this.output?.dispose(); }
+    /** Create a native keyboard-accessible disclosure, collapsed by default. */
+    disclosure(parent, label) {
+      const details = parent.createEl('details', { cls: 'md2tex-workshop-disclosure' });
+      details.open = false;
+      details.createEl('summary', { text: label });
+      return details;
+    }
     /** Add a guarded user action whose asynchronous errors become a concise notice. */
     button(parent, text, action) {
       const element = parent.createEl('button', { text });
@@ -59,11 +76,15 @@ function createViewClass(api, runtime) {
     render(state) {
       this.targetEl.setText(`Note: ${state.target?.path || 'Select a Markdown note'}`);
       const latest = state.latest;
-      const status = state.busy ? `Building ${state.runningTarget} (${state.stage})`
-        : state.diagnostic ? state.diagnostic.message : latest ? latest.status === 'success' ? 'Build succeeded' : 'Build needs attention' : 'Ready for a manual build';
-      this.statusEl.setText(status);
-      this.statusEl.dataset.state = state.diagnostic ? 'error' : state.busy ? 'running' : latest?.status || 'idle';
-      this.revisionEl.setText(state.lastSuccess ? state.current ? 'PDF matches the current note.' : 'The last successful PDF is available; the note has changed or has not been checked.' : 'No successful PDF for this note yet.');
+      const diagnostic = state.diagnostic || latest?.diagnostics?.find(item => item.severity === 'error') || latest?.diagnostics?.[0];
+      const failed = Boolean(state.diagnostic || latest?.status === 'error' || latest?.target?.status === 'error' || state.linkedTarget?.status === 'error');
+      const status = state.diagnostic?.message || (latest?.status === 'error' ? diagnostic?.message || 'Build failed; open Details and diagnostics.' : latest?.target?.status === 'error' ? latest.target.message : state.linkedTarget?.message);
+      this.statusEl.setText(failed ? String(status || 'Build needs attention.').replace(/\s+/g, ' ') : '');
+      this.statusEl.hidden = !failed;
+      this.statusEl.title = failed ? String(status || 'Build needs attention.') : '';
+      this.statusEl.dataset.state = failed ? 'error' : 'idle';
+      this.revisionEl.setText('Showing the last successful PDF; rebuild to check the current note.');
+      this.revisionEl.hidden = !state.lastSuccess || state.current;
       const profile = latest?.profile;
       const origin = profile?.origins || {};
       this.recipeEl.setText(profile ? `Last build settings: ${profile.preamblePath.split(/[\\/]/).pop()} (${origin.preamble || 'recorded'}); ${profile.engine} (${origin.engine || 'recorded'}); bibliography ${profile.bibliographyMode} (${origin.bibliography || 'recorded'}), ${(latest.dependencies || []).filter(item => item.kind === 'bibliography').length} file(s) (${origin.bibs || 'recorded'}).` : 'Build to resolve document settings.');
@@ -75,13 +96,15 @@ function createViewClass(api, runtime) {
       this.linkEl.setText(link?.status === 'error' ? `TeX link: ${link.message}` : link?.linked ? `TeX target: ${link.target}${link.externallyEdited ? ' — external edits; reverse preview required' : link.published ? '' : ' — build to create'}` : 'No fixed TeX target.');
       this.queueEl.setText(`Automatic builds: ${state.autoBuild ? 'on' : 'off'}; queued: ${state.queuedBuilds || 0}${state.pendingAutoBuild ? '; latest edit pending' : ''}${state.reviewing ? '; reverse preview running' : ''}`);
       this.linkButton.disabled = !state.target || state.busy || state.reviewing;
+      this.saveTargetButton.disabled = this.linkButton.disabled;
       this.linkedButton.disabled = !link?.published;
       this.reverseButton.disabled = !link?.published || state.busy || state.reviewing;
       this.pinButton.disabled = !state.target;
       this.pinButton.setText(state.pinned ? 'Unpin note' : 'Pin note');
       this.pdfButton.disabled = !state.lastSuccess;
       this.texButton.disabled = !latest?.artifacts?.tex && !state.lastSuccess;
-      const diagnostic = state.diagnostic || latest?.diagnostics?.find(item => item.severity === 'error') || latest?.diagnostics?.[0];
+      this.copyButton.disabled = !state.lastSuccess?.artifacts?.tex;
+      this.copyButton.title = state.lastSuccess ? `Copy ${state.target?.path}: ${state.current ? 'current successful build' : 'last successful build; note has changed'}` : 'Build successfully before copying generated TeX';
       const location = diagnostic?.path || diagnostic?.texFile;
       this.diagnosticEl.setText(diagnostic ? `${!state.diagnostic && !state.latestCurrent ? 'From an earlier or unchecked revision; rebuild for current locations.\n' : ''}${diagnostic.code}: ${diagnostic.message}${location ? `\n${location}${diagnostic.line || diagnostic.texLine ? `:${diagnostic.line || diagnostic.texLine}` : ''}` : ''}` : 'No diagnostics.');
       this.sourceButton.disabled = !state.latestCurrent || !diagnostic?.path || !diagnostic?.line;

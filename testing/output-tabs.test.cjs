@@ -102,7 +102,7 @@ test('late logs and PDF lookup cannot overwrite another note or a preflight-only
   f.output.update(state()); f.output.select('log');
   f.output.update({ ...state('b', null, null), latest: { diagnostics: [{ code: 'PREFLIGHT' }] } });
   oldPdf.resolve({ sourcePath: 'a.md', markdown: '![[old.pdf]]' }); oldLog.resolve('old log'); await settle();
-  assert.equal(f.rendered.length, 0); assert.match(f.output.pdfPanel.text, /Build this note/); assert.match(f.output.logPanel.text, /diagnostics above/);
+  assert.equal(f.rendered.length, 0); assert.match(f.output.pdfPanel.text, /Build this note/); assert.match(f.output.logPanel.text, /Details and diagnostics/);
   f.output.dispose();
 });
 
