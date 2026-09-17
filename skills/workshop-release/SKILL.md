@@ -29,3 +29,7 @@ description: Prepare or verify a clean public md2tex Workshop source candidate, 
 6. Present the exact candidate and destination for publication review. Export
    does not create a remote or publish. After authorized publication, verify
    the public commit and artifact hashes rather than assuming a push succeeded.
+
+## Three-file plugin candidates
+
+For BRAT or standard desktop release assets, read [the package contract](../../docs/brat.md) and use `--format brat`. Verify that a fresh candidate contains exactly the three release files. Run the packaged-host and embedded-integrity tests; preserve exact companion bytes because round-trip guards hash real files. Keep interrupted or changed runtime directories as evidence instead of repairing them in place. Report isolated host tests separately from native Obsidian acceptance and an actual BRAT download. Packaging does not authorize deployment or publication.

@@ -89,10 +89,9 @@ async function freshDirectory(directory) {
   await fs.mkdir(directory);
 }
 
-/** Stage the thin manual host and its complete, relocatable deterministic companion. */
-async function stagePackage({ sourceRoot, output }) {
+/** Read the complete relocatable companion into memory and compute its exact inventory. */
+async function collectPackage(sourceRoot) {
   sourceRoot = path.resolve(sourceRoot);
-  output = path.resolve(output);
   const files = new Map();
   for (const [source, destination] of [['src/main.js', 'main.js'], ['manifest.json', 'manifest.json'], ['styles.css', 'styles.css'], ['scripts/workshop.cjs', 'toolchain/scripts/workshop.cjs']]) {
     files.set(destination, await regularFile(path.join(sourceRoot, source)));
@@ -111,6 +110,14 @@ async function stagePackage({ sourceRoot, output }) {
   const record = { schemaVersion, pluginId: manifest.id, version: manifest.version,
     hostIntegration: 'cli-manual', toolchainEntry: 'toolchain/scripts/workshop.cjs',
     files: members, contentSha256: hash(JSON.stringify(members)) };
+  return { files, record };
+}
+
+/** Stage the complete directory package in a fresh destination. */
+async function stagePackage({ sourceRoot, output }) {
+  sourceRoot = path.resolve(sourceRoot);
+  output = path.resolve(output);
+  const { files, record } = await collectPackage(sourceRoot);
   for (const tree of ['src', 'assets', 'scripts']) separateDirectories(output, path.join(sourceRoot, tree));
   await freshDirectory(output);
   for (const [name, bytes] of files) {
@@ -225,4 +232,4 @@ async function installPackage({ packageDir, target, expectedPlan, backupDir }) {
   return { status: 'success', command: 'install', target, reportPath, changedFiles: report.completed.length };
 }
 
-module.exports = { stagePackage, readPackage, planInstall, installPackage, safeStat, regularFile };
+module.exports = { collectPackage, freshDirectory, separateDirectories, stagePackage, readPackage, planInstall, installPackage, safeStat, regularFile };

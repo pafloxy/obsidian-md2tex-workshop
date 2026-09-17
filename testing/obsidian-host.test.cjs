@@ -10,6 +10,7 @@ const fsSync = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
+const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
 const { createRuntime } = require('../src/obsidian/plugin.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
@@ -161,11 +162,13 @@ test('reloading the packaged entry refreshes only its companion module cache', a
   } finally { second.onunload(); }
 });
 
-test('relocated packaged entry builds the pinned editor snapshot with AI off and stable view ownership', async t => {
+for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPackage]]) test(`relocated ${format} entry builds the pinned editor snapshot with AI off and stable view ownership`, async t => {
   await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
   const dir = await fs.mkdtemp(path.join(root, 'tmp/manual host-'));
   const initialVault = path.join(dir, 'vault');
-  await stagePackage({ sourceRoot: root, output: path.join(initialVault, '.obsidian/plugins/md2tex-workshop') });
+  const installed = path.join(initialVault, '.obsidian/plugins/md2tex-workshop');
+  await stage({ sourceRoot: root, output: installed });
+  if (format === 'brat') assert.deepEqual((await fs.readdir(installed)).sort(), ['main.js', 'manifest.json', 'styles.css']);
   const vaultRoot = path.join(dir, 'relocated vault');
   await fs.rename(initialVault, vaultRoot);
   const legacy = { nodeCommand: process.execPath, autoCompile: true, autoAskAgent: true, unrelated: { keep: 'exactly' } };
@@ -320,7 +323,7 @@ test('pane reveal awaits the public asynchronous host operation and surfaces its
   runtime.dispose();
 });
 
-test('CLI target discovery, auto-build, manual queue and reverse preview cooperate in the host', async t => {
+for (const format of ['direct', 'brat']) test(`CLI target discovery, auto-build, manual queue and reverse preview cooperate in the ${format} host`, async t => {
   await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
   const dir = await fs.mkdtemp(path.join(root, 'tmp/linked host-'));
   const value = host(dir, { nodeCommand: process.execPath, buildDebounceMs: 100 });
@@ -330,11 +333,30 @@ test('CLI target discovery, auto-build, manual queue and reverse preview coopera
   await fs.writeFile(path.join(dir, file.path), source);
   const editor = new value.api.MarkdownView(file, source);
   value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
-  const runtime = createRuntime(plugin, value.api, {
-    openPath: async filename => { value.external.push(filename); return ''; },
-    writeClipboard: text => value.copied.push(text),
-  });
-  t.after(() => runtime.dispose()); await runtime.start();
+  let runtime;
+  if (format === 'brat') {
+    const output = path.join(dir, '.obsidian/plugins/md2tex-workshop');
+    await stageBratPackage({ sourceRoot: root, output });
+    const context = { module: { exports: {} },
+      /** Preserve actual entry loading while recording explicit desktop actions. */
+      require(name) {
+        if (name === 'obsidian') return value.api;
+        if (name === 'electron') return { shell: { openPath: async filename => { value.external.push(filename); return ''; } }, clipboard: { writeText: text => value.copied.push(text) } };
+        return require(name);
+      },
+    };
+    const entry = path.join(output, 'main.js');
+    vm.runInNewContext(await fs.readFile(entry, 'utf8'), context, { filename: entry });
+    const packaged = new context.module.exports();
+    await packaged.onload(); runtime = packaged.runtime;
+  } else {
+    runtime = createRuntime(plugin, value.api, {
+      openPath: async filename => { value.external.push(filename); return ''; },
+      writeClipboard: text => value.copied.push(text),
+    });
+    await runtime.start();
+  }
+  t.after(() => runtime.dispose());
   const target = path.join(dir, 'stable.tex');
   const command = await execute(process.execPath, [path.join(root, 'scripts/workshop.cjs'), 'tex-target', path.join(dir, file.path), '--target', target], { cwd: root });
   assert.equal(command.code, 0);

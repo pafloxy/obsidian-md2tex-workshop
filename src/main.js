@@ -8,10 +8,13 @@ const { createRequire } = require('node:module');
 
 /** Delegate host behavior to the packaged companion while keeping Obsidian imports at this entry. */
 module.exports = class Md2TexWorkshopPlugin extends api.Plugin {
+  /** Resolve the default companion location; the self-contained release supplies its verified entry. */
+  static async resolveRuntimeEntry(entry) { return entry; }
+
   /** Load the full-directory companion relative to this plugin, independent of process cwd. */
   async onload() {
     const base = this.app.vault.adapter.getBasePath();
-    const entry = path.join(base, this.manifest.dir, 'main.js');
+    const entry = await this.constructor.resolveRuntimeEntry(path.join(base, this.manifest.dir, 'main.js'));
     const load = createRequire(entry);
     // Obsidian reloads this entry; Node retains companion modules across plugin lifecycles.
     const companion = path.join(path.dirname(entry), 'toolchain') + path.sep;
