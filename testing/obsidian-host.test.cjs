@@ -156,6 +156,9 @@ test('shared explanation pane requires a current failure and discards stale repl
   assert.deepEqual(calls, [{ allowTrusted: false }]);
   assert.match(view.agentStatusEl.text, /AGENT_CONSENT_REQUIRED/);
   const pending = view.agentRunButton.events.click();
+  assert.equal(view.agentRunButton.disabled, true);
+  await view.requestExplanation(true);
+  assert.equal(calls.length, 2, 'a second click cannot dispatch concurrently');
   state = { ...state, latestCurrent: false };
   subscriber(state);
   resolveReply({ status: 'explained', packetId: '1234567890123456', explanation: { verdict: 'fixable', summary: 'Old reply', suggestions: [{ text: 'Old suggestion' }] } });
@@ -323,6 +326,7 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   assert.equal(view.revisionEl.hidden, false);
   assert.equal(view.detailsEl.open, false, 'failure does not force expanded details');
   assert.equal(view.agentRunButton.disabled, true, 'a failed build does not enable an unconfigured provider');
+  assert.match(view.agentStatusEl.text, /not configured/);
   await plugin.commands.get('copy-generated-tex').callback();
   assert.equal(value.copied.at(-1), generatedTex, 'a failed build keeps the last successful TeX copyable');
   assert.match(value.notices.at(-1), /last successful build; note has changed/);

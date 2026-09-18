@@ -151,7 +151,12 @@ function createViewClass(api, runtime) {
         this.agentShownCurrent = state.latestCurrent;
         this.agentShownTarget = state.target?.path;
         this.agentResultEl.setText('');
-        this.agentStatusEl.setText(!state.latestCurrent && latest ? 'Draft changed; rebuild before explaining it.' : latest?.status === 'success' ? 'Build succeeded; no explanation needed.' : explainable ? 'Current build failed. Request an explanation.' : 'Build a failing revision to explain it.');
+        let agentMessage = 'Build a failing revision to explain it.';
+        if (!state.latestCurrent && latest) agentMessage = 'Draft changed; rebuild before explaining it.';
+        else if (latest?.status === 'success') agentMessage = 'Build succeeded; no explanation needed.';
+        else if (latest?.status === 'error' && !runtime.explainFailure) agentMessage = 'Agent assistance is not configured.';
+        else if (explainable) agentMessage = 'Current build failed. Request an explanation.';
+        this.agentStatusEl.setText(agentMessage);
       }
       const location = diagnostic?.path || diagnostic?.texFile;
       this.diagnosticEl.setText(diagnostic ? `${!state.diagnostic && !state.latestCurrent ? 'From an earlier or unchecked revision; rebuild for current locations.\n' : ''}${diagnostic.code}: ${diagnostic.message}${location ? `\n${location}${diagnostic.line || diagnostic.texLine ? `:${diagnostic.line || diagnostic.texLine}` : ''}` : ''}` : 'No diagnostics.');
