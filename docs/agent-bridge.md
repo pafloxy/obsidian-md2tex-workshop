@@ -52,6 +52,8 @@ The command returns `workshop-agent-explanation-result.v1` with `status: success
 
 Input is limited to 64 KiB. Captured stdout is limited to 256 KiB, stderr to 64 KiB, and profiles have a 1–120 second deadline. The runner uses Linux process groups for timeout and cancellation, with file-backed streams because some supported hosts do not permit nested IPC pipes. Its fresh job directory under the project `tmp/` retains the request and bounded output as local private evidence; there is no automatic cleanup. Environment inheritance is narrow by default and `inheritEnv` names are explicit, up to eight. An approved variable's value is still available to the trusted child, so review it before invocation. The process runner is not an OS sandbox.
 
+The runner checks and reads the same parent-owned output file descriptor. A replaced output pathname is refused, and cancellation or deadline expiry during final readback prevents a successful reply. The periodic size check limits what Workshop accepts; a fast-writing child can briefly write more than that amount to disk before termination, so it is not a disk quota. Process cleanup may use an additional one-second kill grace after the invocation deadline.
+
 The validator checks packet identity, allowed fields and evidence references; it does not prove the advice is correct. Render the reply as text. The current CLI has no live-editor freshness check, so an old packet and its matching old reply may still validate. The later Obsidian observer must compare the current editor/job generation before displaying advice as current.
 
 ## Verification

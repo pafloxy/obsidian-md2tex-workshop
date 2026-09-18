@@ -9,6 +9,7 @@ const path = require('node:path');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const { createFailurePacket } = require('../src/core/failure-packet.cjs');
 const { validateAgentProfile, explainWithAgent } = require('../src/core/agent-dispatch.cjs');
+const { runAgentProcess } = require('../src/core/agent-process.cjs');
 const { execute } = require('./execute.cjs');
 const root = path.resolve(__dirname, '..');
 const cli = path.join(root, 'scripts/workshop.cjs');
@@ -56,6 +57,130 @@ test('explicit trusted custom wrapper returns one validated reply from captured 
   assert.equal(result.value.explanation.packetId, f.packet.packetId);
   assert.equal(result.value.explanation.evidenceIds[0], 'diagnostic-1');
   assert.equal(await fs.readFile(f.input, 'utf8'), f.sourceText);
+});
+
+test('agent output path replacement cannot substitute an unchecked oversized reply', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'replace-output.cjs');
+  await fs.writeFile(fake, `const fs=require('node:fs');
+const p=JSON.parse(fs.readFileSync(0,'utf8')).packet;
+fs.renameSync('stdout.json','original-stdout.json');
+fs.writeFileSync('stdout.json',' '.repeat(300000)+JSON.stringify({schemaVersion:'workshop-explanation.v1',packetId:p.packetId,failureId:p.identity.failureId,sourceHash:p.identity.sourceHash,verdict:'explained',summary:'Invalid replacement',evidenceIds:['diagnostic-1'],suggestions:[]}));\n`);
+  await assert.rejects(explainWithAgent(f.packet, { ...f.profile, args: [fake] }, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_OUTPUT_FAILED' });
+  assert.equal(await fs.readFile(f.input, 'utf8'), f.sourceText);
+});
+
+test('agent FIFO replacement settles without waiting on the replacement pathname', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'fifo-output.cjs');
+  await fs.writeFile(fake, `const fs=require('node:fs');const {spawnSync}=require('node:child_process');
+fs.renameSync('stdout.json','original-stdout.json');
+if(spawnSync('mkfifo',['stdout.json']).status!==0)process.exit(7);\n`);
+  const helper = path.join(f.dir, 'invoke-fifo.cjs');
+  await fs.writeFile(helper, `const {runAgentProcess}=require(${JSON.stringify(path.join(root, 'src/core/agent-process.cjs'))});
+runAgentProcess({executable:process.execPath,args:[${JSON.stringify(fake)}],inheritEnv:[],timeoutMs:1000},'{}\\n',{cwd:${JSON.stringify(path.join(f.dir,'fifo-job'))}})
+  .then(()=>process.exitCode=9,error=>{if(error.code!=='AGENT_OUTPUT_FAILED')process.exitCode=8;});\n`);
+  await fs.mkdir(path.join(f.dir, 'fifo-job'));
+  const result = await execute(process.execPath, [helper], { cwd: root, timeout: 3500 });
+  assert.equal(result.code, 0);
+});
+
+test('agent symlink replacement is refused without following its target', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'link-output.cjs');
+  await fs.writeFile(fake, `const fs=require('node:fs');
+fs.renameSync('stdout.json','original-stdout.json');
+fs.symlinkSync('original-stdout.json','stdout.json');\n`);
+  await assert.rejects(explainWithAgent(f.packet, { ...f.profile, args: [fake] }, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_OUTPUT_FAILED' });
+});
+
+test('abort during final agent readback revokes a completed child reply', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  const original = fs.open;
+  let readback = false;
+  fs.open = async function(filename, flags, ...args) {
+    const handle = await original.call(this, filename, flags, ...args);
+    if (typeof filename === 'string' && filename.endsWith('/stdout.json') && flags === 'wx+') {
+      const read = handle.read.bind(handle);
+      handle.read = async (...readArgs) => { readback = true; controller.abort(); return read(...readArgs); };
+    }
+    return handle;
+  };
+  try {
+    await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir, signal: controller.signal }), { code: 'AGENT_CANCELLED' });
+    assert.equal(readback, true);
+  } finally { fs.open = original; }
+});
+
+test('abort after runner readback cannot publish a validated explanation', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  const original = JSON.parse;
+  let intercepted = false;
+  JSON.parse = function(value, ...args) {
+    const parsed = original.call(this, value, ...args);
+    if (typeof value === 'string' && value.startsWith('{"schemaVersion":"workshop-explanation.v1"')) {
+      intercepted = true;
+      controller.abort();
+    }
+    return parsed;
+  };
+  try {
+    await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir, signal: controller.signal }), { code: 'AGENT_CANCELLED' });
+    assert.equal(intercepted, true);
+  } finally { JSON.parse = original; }
+});
+
+test('deadline already spent on setup cannot start an agent', async () => {
+  const f = await fixture();
+  const marker = path.join(f.dir, 'spawned-after-deadline');
+  const fake = path.join(f.dir, 'mark-start.cjs');
+  await fs.writeFile(fake, `require('node:fs').writeFileSync(${JSON.stringify(marker)},'started');\n`);
+  const original = fs.open;
+  fs.open = async function(filename, ...args) {
+    if (typeof filename === 'string' && filename.endsWith('/request.json')) await new Promise(resolve => setTimeout(resolve, 1050));
+    return original.call(this, filename, ...args);
+  };
+  try {
+    const cwd = await fs.mkdtemp(path.join(f.dir, 'setup-'));
+    await assert.rejects(runAgentProcess({ ...f.profile, args: [fake], inheritEnv: [] }, '{}\n', { cwd }), { code: 'AGENT_TIMEOUT' });
+    await assert.rejects(fs.access(marker), { code: 'ENOENT' });
+  } finally { fs.open = original; }
+});
+
+test('deadline remains active during descriptor readback', async () => {
+  const f = await fixture();
+  const original = fs.open;
+  let readback = false;
+  fs.open = async function(filename, flags, ...args) {
+    const handle = await original.call(this, filename, flags, ...args);
+    if (typeof filename === 'string' && filename.endsWith('/stdout.json') && flags === 'wx+') {
+      const read = handle.read.bind(handle);
+      handle.read = async (...readArgs) => { readback = true; await new Promise(resolve => setTimeout(resolve, 1100)); return read(...readArgs); };
+    }
+    return handle;
+  };
+  try {
+    await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_TIMEOUT' });
+    assert.equal(readback, true);
+  } finally { fs.open = original; }
+});
+
+test('successful child with failed descriptor cleanup is not reported as success', async () => {
+  const f = await fixture();
+  const original = fs.open;
+  fs.open = async function(filename, flags, ...args) {
+    const handle = await original.call(this, filename, flags, ...args);
+    if (typeof filename === 'string' && filename.endsWith('/stdout.json') && flags === 'wx+') {
+      const close = handle.close.bind(handle);
+      handle.close = async () => { await close(); throw new Error('Synthetic close failure'); };
+    }
+    return handle;
+  };
+  try {
+    await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_CLEANUP_INCOMPLETE' });
+  } finally { fs.open = original; }
 });
 
 test('Codex preset fixes read-only noninteractive flags and accepts one matching JSON reply', async () => {

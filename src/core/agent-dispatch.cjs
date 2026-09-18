@@ -51,13 +51,19 @@ async function explainWithAgent(rawPacket, rawProfile, { allowTrusted = false, s
   if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled before launch.');
   await fs.mkdir(scratchRoot, { recursive: true });
   const cwd = await fs.mkdtemp(path.join(scratchRoot, 'agent-explain-'));
+  if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled before launch.');
   const invocation = await prepareAgentInvocation(profile, cwd);
+  if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled before launch.');
   const result = await runAgentProcess(invocation, request, { cwd, signal });
+  if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled.');
   let response;
   try { response = JSON.parse(result.stdout); }
   catch { fault('AGENT_PROTOCOL', 'Agent stdout must contain exactly one JSON response.'); }
+  if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled.');
+  const explanation = validateExplanation(response, packet);
+  if (signal?.aborted) fault('AGENT_CANCELLED', 'Agent request was cancelled.');
   return Object.freeze({ schemaVersion: 'workshop-agent-explanation-result.v1', command: 'agent-explain', status: 'success',
-    packetId: packet.packetId, mode: profile.mode, explanation: validateExplanation(response, packet) });
+    packetId: packet.packetId, mode: profile.mode, explanation });
 }
 
 module.exports = { profileVersion, requestVersion, promptVersion, validateAgentProfile, explainWithAgent };
