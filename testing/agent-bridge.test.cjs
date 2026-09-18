@@ -94,6 +94,13 @@ fs.symlinkSync('original-stdout.json','stdout.json');\n`);
   await assert.rejects(explainWithAgent(f.packet, { ...f.profile, args: [fake] }, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_OUTPUT_FAILED' });
 });
 
+test('missing output pathname is refused without reopening it', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'missing-output.cjs');
+  await fs.writeFile(fake, `require('node:fs').renameSync('stdout.json','original-stdout.json');\n`);
+  await assert.rejects(explainWithAgent(f.packet, { ...f.profile, args: [fake] }, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_OUTPUT_FAILED' });
+});
+
 test('abort during final agent readback revokes a completed child reply', async () => {
   const f = await fixture();
   const controller = new AbortController();
@@ -164,6 +171,24 @@ test('deadline remains active during descriptor readback', async () => {
   try {
     await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_TIMEOUT' });
     assert.equal(readback, true);
+  } finally { fs.open = original; }
+});
+
+test('truncated retained output during readback cannot be accepted', async () => {
+  const f = await fixture();
+  const original = fs.open;
+  let intercepted = false;
+  fs.open = async function(filename, flags, ...args) {
+    const handle = await original.call(this, filename, flags, ...args);
+    if (typeof filename === 'string' && filename.endsWith('/stdout.json') && flags === 'wx+') {
+      const read = handle.read.bind(handle);
+      handle.read = async (...readArgs) => { intercepted = true; await handle.truncate(0); return read(...readArgs); };
+    }
+    return handle;
+  };
+  try {
+    await assert.rejects(explainWithAgent(f.packet, f.profile, { allowTrusted: true, scratchRoot: f.dir }), { code: 'AGENT_OUTPUT_FAILED' });
+    assert.equal(intercepted, true);
   } finally { fs.open = original; }
 });
 
@@ -240,6 +265,29 @@ test('quiet hangs, output floods and missing executables remain bounded failures
     [{ ...f.profile, args: [f.fake, 'flood'] }, 'AGENT_OUTPUT_LIMIT'],
     [{ ...f.profile, executable: path.join(f.dir, 'missing-agent') }, 'AGENT_NOT_FOUND'],
   ]) { const result = await command(f, ['--allow-trusted-agent'], profile); assert.equal(result.code, 1); assert.equal(result.value.diagnostics[0].code, code); }
+});
+
+test('stderr overflow and invalid UTF-8 retain their typed failures', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'output-failures.cjs');
+  await fs.writeFile(fake, `if(process.argv[2]==='stderr')process.stderr.write('x'.repeat(70000));
+else process.stdout.write(Buffer.from([0xc3,0x28]));\n`);
+  for (const [mode, code] of [['stderr', 'AGENT_OUTPUT_LIMIT'], ['utf8', 'AGENT_PROTOCOL']]) {
+    const result = await command(f, ['--allow-trusted-agent'], { ...f.profile, args: [fake, mode] });
+    assert.equal(result.code, 1);
+    assert.equal(result.value.diagnostics[0].code, code);
+  }
+});
+
+test('TERM-resistant agent is killed after timeout grace', async () => {
+  const f = await fixture();
+  const fake = path.join(f.dir, 'term-resistant.cjs');
+  await fs.writeFile(fake, `process.on('SIGTERM',()=>{});setInterval(()=>{},1000);\n`);
+  await fs.writeFile(f.profilePath, JSON.stringify({ ...f.profile, args: [fake], timeoutMs: 1000 }));
+  const result = await execute(process.execPath, [cli, 'agent-explain', f.packetPath, '--profile', f.profilePath, '--allow-trusted-agent'],
+    { cwd: root, timeout: 4500 }).catch(error => error);
+  assert.equal(result.code, 1);
+  assert.equal(JSON.parse(result.stdout).diagnostics[0].code, 'AGENT_TIMEOUT');
 });
 
 test('pre-aborted direct dispatch does not start an agent', async () => {
