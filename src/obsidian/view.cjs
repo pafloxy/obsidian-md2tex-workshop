@@ -9,7 +9,7 @@ function createViewClass(api, runtime) {
   /** Present controller state; compilation and source ownership remain in their modules. */
   return class WorkshopView extends api.ItemView {
     /** Bind a workspace leaf; retain DOM elements across status updates. */
-    constructor(leaf) { super(leaf); this.unsubscribe = null; this.output = null; }
+    constructor(leaf) { super(leaf); this.unsubscribe = null; this.output = null; this.explainedBuild = null; this.agentBusy = false; this.closed = false; }
     /** Preserve the existing workspace view identifier. */
     getViewType() { return 'md2tex-workshop-view'; }
     /** Return the native tab title. */
@@ -18,6 +18,7 @@ function createViewClass(api, runtime) {
     getIcon() { return 'file-code'; }
     /** Mount controls once and subscribe this view to the manual controller. */
     async onOpen() {
+      this.closed = false;
       const root = this.contentEl;
       root.empty();
       root.addClass('md2tex-workshop-view', 'md2tex-workshop-manual');
@@ -45,6 +46,14 @@ function createViewClass(api, runtime) {
       this.linkedButton = this.button(linking, 'Open linked TeX', () => runtime.openLinked());
       this.reverseButton = this.button(linking, 'Preview TeX changes', () => runtime.previewLinked());
       this.output = new OutputTabs(api, runtime, this, root);
+      this.agentEl = this.disclosure(root, 'Agent explanation');
+      this.agentInfoEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-info' });
+      const agentActions = this.agentEl.createDiv({ cls: 'md2tex-workshop-toolbar' });
+      this.agentGuardButton = this.button(agentActions, 'Check consent guard', () => this.requestExplanation(false));
+      this.agentRunButton = this.button(agentActions, runtime.explanationActionLabel || 'Run explanation', () => this.requestExplanation(true));
+      this.agentStatusEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-status' });
+      this.agentStatusEl.setAttribute('role', 'status');
+      this.agentResultEl = this.agentEl.createEl('pre', { cls: 'md2tex-workshop-agent-result' });
       this.detailsEl = this.disclosure(root, 'Details and diagnostics');
       const summary = this.detailsEl.createDiv({ cls: 'md2tex-workshop-summary' });
       this.recipeEl = summary.createDiv();
@@ -58,7 +67,7 @@ function createViewClass(api, runtime) {
       await runtime.controller.refreshTarget();
     }
     /** Release view subscriptions without cancelling a separately owned build or detaching leaves. */
-    async onClose() { this.unsubscribe?.(); this.unsubscribe = null; this.output?.dispose(); }
+    async onClose() { this.closed = true; this.unsubscribe?.(); this.unsubscribe = null; this.output?.dispose(); }
     /** Create a native keyboard-accessible disclosure, collapsed by default. */
     disclosure(parent, label) {
       const details = parent.createEl('details', { cls: 'md2tex-workshop-disclosure' });
@@ -71,6 +80,36 @@ function createViewClass(api, runtime) {
       const element = parent.createEl('button', { text });
       element.addEventListener('click', () => runtime.perform(action));
       return element;
+    }
+    /** Request one read-only explanation; discard replies if the build or editor revision changes. */
+    async requestExplanation(allowTrusted) {
+      const before = runtime.controller.state();
+      const build = before.latest;
+      if (this.agentBusy || !runtime.explainFailure || !before.latestCurrent || build?.status !== 'error') return;
+      this.agentBusy = true;
+      this.agentGuardButton.disabled = this.agentRunButton.disabled = true;
+      this.agentStatusEl.setText(allowTrusted ? 'Requesting explanation…' : 'Checking consent guard…');
+      this.agentResultEl.setText('');
+      try {
+        const answer = await runtime.explainFailure({ allowTrusted });
+        const after = runtime.controller.state();
+        if (this.closed || after.latest !== build || !after.latestCurrent || after.target?.path !== before.target?.path) {
+          if (this.closed) return;
+          this.agentStatusEl.setText('The note changed; rebuild before explaining it.');
+          return;
+        }
+        this.explainedBuild = build;
+        if (answer.status === 'refused') this.agentStatusEl.setText(`Refused before agent launch: ${answer.code}`);
+        else {
+          this.agentStatusEl.setText(`Validated ${answer.explanation.verdict} reply; packet ${answer.packetId.slice(0, 12)}`);
+          this.agentResultEl.setText(`${answer.explanation.summary}\n\nSuggestion: ${answer.explanation.suggestions.map(item => item.text).join(' ')}`);
+        }
+      } catch (error) {
+        if (!this.closed) this.agentStatusEl.setText(`Explanation unavailable: ${error.message}`);
+      } finally {
+        this.agentBusy = false;
+        if (!this.closed) this.render(runtime.controller.state());
+      }
     }
     /** Update labels and controls without recreating PDF tabs or the whole view. */
     render(state) {
@@ -105,6 +144,16 @@ function createViewClass(api, runtime) {
       this.texButton.disabled = !latest?.artifacts?.tex && !state.lastSuccess;
       this.copyButton.disabled = !state.lastSuccess?.artifacts?.tex;
       this.copyButton.title = state.lastSuccess ? `Copy ${state.target?.path}: ${state.current ? 'current successful build' : 'last successful build; note has changed'}` : 'Build successfully before copying generated TeX';
+      const explainable = Boolean(runtime.explainFailure && state.latestCurrent && latest?.status === 'error' && !state.busy && !this.agentBusy);
+      this.agentGuardButton.disabled = this.agentRunButton.disabled = !explainable;
+      this.agentInfoEl.setText(runtime.explanationDescription || 'Agent assistance is not configured in this plugin build.');
+      if (this.explainedBuild && (this.explainedBuild !== latest || !state.latestCurrent)) {
+        this.explainedBuild = null;
+        this.agentResultEl.setText('');
+        this.agentStatusEl.setText('Draft changed; rebuild before explaining it.');
+      } else if (!this.agentStatusEl.textContent && !this.agentStatusEl.text) {
+        this.agentStatusEl.setText(explainable ? 'Current build failed. Request an explanation.' : 'Build a failing revision to explain it.');
+      }
       const location = diagnostic?.path || diagnostic?.texFile;
       this.diagnosticEl.setText(diagnostic ? `${!state.diagnostic && !state.latestCurrent ? 'From an earlier or unchecked revision; rebuild for current locations.\n' : ''}${diagnostic.code}: ${diagnostic.message}${location ? `\n${location}${diagnostic.line || diagnostic.texLine ? `:${diagnostic.line || diagnostic.texLine}` : ''}` : ''}` : 'No diagnostics.');
       this.sourceButton.disabled = !state.latestCurrent || !diagnostic?.path || !diagnostic?.line;

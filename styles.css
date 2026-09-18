@@ -136,3 +136,6 @@
 .md2tex-workshop-pdf-surface .pdf-embed { height: 100% !important; min-height: 300px; width: 100%; }
 .md2tex-workshop-pdf-surface .pdf-embed > .pdf-toolbar { flex-shrink: 0; }
 .md2tex-workshop-pdf-surface .pdf-embed > .pdf-container { flex: 1 1 0; min-height: 0; }
+.md2tex-workshop-agent-info,
+.md2tex-workshop-agent-status { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 8px; }
+.md2tex-workshop-agent-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; margin: 6px 0; }

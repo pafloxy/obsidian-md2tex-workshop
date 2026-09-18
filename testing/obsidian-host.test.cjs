@@ -13,6 +13,7 @@ const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
 const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
 const { createRuntime } = require('../src/obsidian/plugin.cjs');
+const { createViewClass } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '..');
 
@@ -133,6 +134,44 @@ async function until(predicate) {
   throw new Error('Host fixture did not reach its expected state');
 }
 
+test('shared explanation pane requires a current failure and discards stale replies', async () => {
+  const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
+  const first = { status: 'error', diagnostics: [{ severity: 'error', message: 'Unsupported image' }] };
+  let state = { target: { path: 'draft.md' }, latest: first, latestCurrent: true };
+  let subscriber; let resolveReply; const calls = [];
+  const runtime = {
+    explanationDescription: 'Bundled fake helper only.',
+    controller: { state: () => state, subscribe(callback) { subscriber = callback; callback(state); return () => {}; }, async inspect() {}, async refreshTarget() {} },
+    async explainFailure(options) { calls.push(options); if (calls.length === 1) return { status: 'refused', code: 'AGENT_CONSENT_REQUIRED' }; if (calls.length === 2) return new Promise(resolve => { resolveReply = resolve; }); return { status: 'success', packetId: '1234567890123456', explanation: { verdict: 'explained', summary: '<plain text>', suggestions: [{ text: 'Replace the image line.' }] } }; },
+    async perform(action) { return action(); },
+  };
+  const View = createViewClass(value.api, runtime);
+  const view = new View({});
+  await view.onOpen();
+  assert.equal(view.agentEl.open, false);
+  assert.ok(view.contentEl.children.indexOf(view.output.root) < view.contentEl.children.indexOf(view.agentEl));
+  assert.ok(view.contentEl.children.indexOf(view.agentEl) < view.contentEl.children.indexOf(view.detailsEl));
+  assert.equal(view.agentRunButton.disabled, false);
+  await view.agentGuardButton.events.click();
+  assert.deepEqual(calls, [{ allowTrusted: false }]);
+  assert.match(view.agentStatusEl.text, /AGENT_CONSENT_REQUIRED/);
+  const pending = view.agentRunButton.events.click();
+  state = { ...state, latestCurrent: false };
+  subscriber(state);
+  resolveReply({ status: 'explained', packetId: '1234567890123456', explanation: { verdict: 'fixable', summary: 'Old reply', suggestions: [{ text: 'Old suggestion' }] } });
+  await pending;
+  assert.match(view.agentStatusEl.text, /changed/);
+  assert.equal(view.agentResultEl.text, '');
+  assert.equal(view.agentRunButton.disabled, true);
+  state = { ...state, latest: { ...first }, latestCurrent: true };
+  subscriber(state);
+  await view.agentRunButton.events.click();
+  assert.match(view.agentStatusEl.text, /Validated explained reply/);
+  assert.match(view.agentResultEl.text, /<plain text>/);
+  assert.match(view.agentResultEl.text, /Replace the image line/);
+  await view.onClose();
+});
+
 test('reloading the packaged entry refreshes only its companion module cache', async () => {
   const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/reload host-'));
   const packageRoot = path.join(vaultRoot, '.obsidian/plugins/md2tex-workshop');
@@ -202,6 +241,9 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   await until(() => view.unsubscribe);
   assert.deepEqual(view.contentEl.children[0].children.map(child => child.text), ['Build', 'Set TeX target']);
   assert.equal(view.controlsEl.open, false);
+  assert.equal(view.agentEl.open, false);
+  assert.equal(view.agentRunButton.disabled, true);
+  assert.match(view.agentInfoEl.text, /not configured/);
   assert.equal(view.detailsEl.open, false);
   assert.equal(view.copyButton.disabled, true);
   await plugin.commands.get('copy-generated-tex').callback();
@@ -276,6 +318,7 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   assert.equal(view.statusEl.hidden, false);
   assert.equal(view.revisionEl.hidden, false);
   assert.equal(view.detailsEl.open, false, 'failure does not force expanded details');
+  assert.equal(view.agentRunButton.disabled, true, 'a failed build does not enable an unconfigured provider');
   await plugin.commands.get('copy-generated-tex').callback();
   assert.equal(value.copied.at(-1), generatedTex, 'a failed build keeps the last successful TeX copyable');
   assert.match(value.notices.at(-1), /last successful build; note has changed/);

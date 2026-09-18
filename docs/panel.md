@@ -1,6 +1,6 @@
 # Workshop panel and copying TeX
 
-Build a note to show its PDF in the Workshop. The PDF and compiler-log tabs retain their state while you switch between them. Build and Set TeX target stay visible; Build and TeX controls and Details and diagnostics start collapsed. A failed build keeps a concise status line and the last successful PDF, with a freshness message when that PDF no longer matches the note.
+Build a note to show its PDF in the Workshop. The PDF and compiler-log tabs retain their state while you switch between them. Build and Set TeX target stay visible; Build and TeX controls, Agent explanation, and Details and diagnostics start collapsed. A failed build keeps a concise status line and the last successful PDF, with a freshness message when that PDF no longer matches the note. The explanation area sits below the PDF/log output; without an explicitly configured runtime, its controls remain disabled and no agent is called.
 
 1. Select **Build** to compile the selected or pinned Markdown note.
 2. Open **Build and TeX controls** and select **Copy generated TeX**. The same action is available from the command palette as **Copy Generated TeX from Last Successful Build**.
