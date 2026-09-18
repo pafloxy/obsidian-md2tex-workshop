@@ -169,6 +169,10 @@ test('shared explanation pane requires a current failure and discards stale repl
   assert.match(view.agentStatusEl.text, /Validated explained reply/);
   assert.match(view.agentResultEl.text, /<plain text>/);
   assert.match(view.agentResultEl.text, /Replace the image line/);
+  state = { ...state, latest: { status: 'success' } };
+  subscriber(state);
+  assert.equal(view.agentResultEl.text, '');
+  assert.match(view.agentStatusEl.text, /Build succeeded/);
   await view.onClose();
 });
 

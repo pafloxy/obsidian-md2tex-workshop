@@ -9,7 +9,7 @@ function createViewClass(api, runtime) {
   /** Present controller state; compilation and source ownership remain in their modules. */
   return class WorkshopView extends api.ItemView {
     /** Bind a workspace leaf; retain DOM elements across status updates. */
-    constructor(leaf) { super(leaf); this.unsubscribe = null; this.output = null; this.explainedBuild = null; this.agentBusy = false; this.closed = false; }
+    constructor(leaf) { super(leaf); this.unsubscribe = null; this.output = null; this.agentShownBuild = null; this.agentShownCurrent = null; this.agentShownTarget = null; this.agentBusy = false; this.closed = false; }
     /** Preserve the existing workspace view identifier. */
     getViewType() { return 'md2tex-workshop-view'; }
     /** Return the native tab title. */
@@ -98,7 +98,6 @@ function createViewClass(api, runtime) {
           this.agentStatusEl.setText('The note changed; rebuild before explaining it.');
           return;
         }
-        this.explainedBuild = build;
         if (answer.status === 'refused') this.agentStatusEl.setText(`Refused before agent launch: ${answer.code}`);
         else {
           this.agentStatusEl.setText(`Validated ${answer.explanation.verdict} reply; packet ${answer.packetId.slice(0, 12)}`);
@@ -147,12 +146,12 @@ function createViewClass(api, runtime) {
       const explainable = Boolean(runtime.explainFailure && state.latestCurrent && latest?.status === 'error' && !state.busy && !this.agentBusy);
       this.agentGuardButton.disabled = this.agentRunButton.disabled = !explainable;
       this.agentInfoEl.setText(runtime.explanationDescription || 'Agent assistance is not configured in this plugin build.');
-      if (this.explainedBuild && (this.explainedBuild !== latest || !state.latestCurrent)) {
-        this.explainedBuild = null;
+      if (this.agentShownBuild !== latest || this.agentShownCurrent !== state.latestCurrent || this.agentShownTarget !== state.target?.path) {
+        this.agentShownBuild = latest;
+        this.agentShownCurrent = state.latestCurrent;
+        this.agentShownTarget = state.target?.path;
         this.agentResultEl.setText('');
-        this.agentStatusEl.setText('Draft changed; rebuild before explaining it.');
-      } else if (!this.agentStatusEl.textContent && !this.agentStatusEl.text) {
-        this.agentStatusEl.setText(explainable ? 'Current build failed. Request an explanation.' : 'Build a failing revision to explain it.');
+        this.agentStatusEl.setText(!state.latestCurrent && latest ? 'Draft changed; rebuild before explaining it.' : latest?.status === 'success' ? 'Build succeeded; no explanation needed.' : explainable ? 'Current build failed. Request an explanation.' : 'Build a failing revision to explain it.');
       }
       const location = diagnostic?.path || diagnostic?.texFile;
       this.diagnosticEl.setText(diagnostic ? `${!state.diagnostic && !state.latestCurrent ? 'From an earlier or unchecked revision; rebuild for current locations.\n' : ''}${diagnostic.code}: ${diagnostic.message}${location ? `\n${location}${diagnostic.line || diagnostic.texLine ? `:${diagnostic.line || diagnostic.texLine}` : ''}` : ''}` : 'No diagnostics.');
