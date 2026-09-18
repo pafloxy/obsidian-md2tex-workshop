@@ -53,6 +53,7 @@
     "skills/workshop-release/SKILL.md",
     "skills/workshop-roundtrip/SKILL.md",
     "src/brat-runtime.cjs",
+    "src/core/agent-adapters.cjs",
     "src/core/agent-dispatch.cjs",
     "src/core/agent-process.cjs",
     "src/core/artifacts.cjs",

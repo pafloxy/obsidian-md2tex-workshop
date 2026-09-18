@@ -1,6 +1,6 @@
 # Manual local agent bridge
 
-A captured failure packet can now be sent to a user-owned local CLI wrapper for one explanation. The caller selects a `custom` profile and explicitly opts into trusted command execution for each invocation. Workshop sends the packet and a compact task prompt, then validates the wrapper's single JSON reply against the original packet. This command is manual; compilation, automatic explanation and the Obsidian panel do not invoke it.
+A captured failure packet can now be sent to Codex or a user-owned local CLI wrapper for one explanation. The caller selects a `codex` or `custom` profile and explicitly opts into trusted command execution for each invocation. Workshop sends the packet and a compact task prompt, then validates the single JSON reply against the original packet. This command is manual; compilation, automatic explanation and the Obsidian panel do not invoke it.
 
 ## Profile and invocation
 
@@ -25,9 +25,24 @@ From the checkout root, using an existing captured packet and profile under proj
 node scripts/workshop.cjs agent-explain tmp/packet.json --profile tmp/agent-profile.json --allow-trusted-agent
 ```
 
-The explicit flag approves this one trusted invocation. Without it, or when `enabled` is false, no agent starts. A profile with `mode: restricted` refuses before launch because verified isolation is not implemented. There is no fallback from restricted to trusted. Only the `custom` adapter is currently supported; selecting a named Codex, Claude or Qwen preset is a later milestone. A shell alias, interactive TUI or command string is not a supported executable/argument contract.
+The explicit flag approves this one trusted invocation. Without it, or when `enabled` is false, no agent starts. A profile with `mode: restricted` refuses before launch because verified isolation is not implemented. There is no fallback from restricted to trusted. A shell alias, interactive TUI or command string is not a supported executable/argument contract.
 
-The plugin does not enable this command automatically. To use an installed coding agent, create a wrapper that runs its documented noninteractive interface and normalizes its final output. Do not assume `codex`, `claude` and `qwen` share flags or JSON envelopes. Named provider adapters and readiness checks remain a later milestone.
+For Codex, use the same command with `adapter: "codex"`, an absolute path to the installed `codex` executable, and `args: []`. Find the executable with `command -v codex` from the public checkout root, then place that absolute path in the profile; this is a user-selected local binary, not a bundled dependency. The adapter fixes the invocation to noninteractive `codex exec` with a read-only sandbox, no interactive approvals, an ephemeral session, ignored user configuration, and a job-local JSON output schema. Codex may still use its saved CLI authentication and contact its default model provider; the bounded packet excerpts may leave the machine. The trusted-mode flag remains necessary because Workshop does not prove OS isolation or restrict file reads by the agent. The profile cannot add arbitrary Codex flags. The installed development binary tested here reports `codex-cli 0.0.0`; other versions need their own readiness test. [Codex noninteractive documentation](https://developers.openai.com/fr-FR/docs/non-interactive-mode) describes these CLI modes.
+
+```json
+{
+  "schemaVersion": "workshop-agent-profile.v1",
+  "enabled": true,
+  "adapter": "codex",
+  "executable": "/absolute/path/from/command-v/codex",
+  "args": [],
+  "mode": "trusted",
+  "timeoutMs": 90000,
+  "inheritEnv": []
+}
+```
+
+The plugin does not enable this command automatically. For a different installed coding agent, use the `custom` wrapper contract below. Do not assume Codex and Qwen share flags or JSON envelopes. Qwen, other named adapters, native settings and automatic dispatch remain later milestones.
 
 ## Wrapper contract
 
@@ -47,4 +62,4 @@ From the public checkout root:
 node --test --test-isolation=none testing/agent-bridge.test.cjs
 ```
 
-The tests use synthetic executables and packets. They cover matching, stale and malformed replies, disabled/unapproved/restricted profiles, missing executables, output floods and timeout. They do not invoke a real model, exercise authentication, prove restricted isolation or test native Obsidian UI behavior.
+The tests use synthetic executables and packets. They cover the Codex invocation flags and schema, matching, stale and malformed replies, disabled/unapproved/restricted profiles, missing executables, output floods and timeout. They do not invoke a real model, exercise authentication, prove restricted isolation or test native Obsidian UI behavior. A real Codex acceptance run must be reported separately with its exact binary, mode, packet, result and source-preservation check.

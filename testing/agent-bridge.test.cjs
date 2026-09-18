@@ -58,6 +58,34 @@ test('explicit trusted custom wrapper returns one validated reply from captured 
   assert.equal(await fs.readFile(f.input, 'utf8'), f.sourceText);
 });
 
+test('Codex preset fixes read-only noninteractive flags and accepts one matching JSON reply', async () => {
+  const f = await fixture();
+  const executable = path.join(f.dir, 'codex-fixture.cjs');
+  await fs.writeFile(executable, `#!/usr/bin/env node
+/** Model only the Codex CLI argument and stdin/stdout contract; usage: ./codex-fixture.cjs [fixed args]. */
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+for (const flag of ['-a', 'never', 'exec', '--sandbox', 'read-only', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--output-schema', '-']) if (!args.includes(flag)) process.exit(7);
+const schema = JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'));
+if (schema.additionalProperties !== false || schema.properties.verdict.enum[0] !== 'explained') process.exit(8);
+let text = ''; process.stdin.on('data', chunk => { text += chunk; }).on('end', () => {
+  const { packet } = JSON.parse(text);
+  process.stdout.write(JSON.stringify({ schemaVersion: 'workshop-explanation.v1', packetId: packet.packetId,
+    failureId: packet.identity.failureId, sourceHash: packet.identity.sourceHash, verdict: 'explained',
+    summary: 'The image embedding is unsupported.', evidenceIds: ['diagnostic-1'], suggestions: [] }));
+});
+`);
+  await fs.chmod(executable, 0o755);
+  const profile = { ...f.profile, adapter: 'codex', executable, args: [], timeoutMs: 3000 };
+  const refused = await command(f, [], profile);
+  assert.equal(refused.value.diagnostics[0].code, 'AGENT_CONSENT_REQUIRED');
+  const accepted = await command(f, ['--allow-trusted-agent'], profile);
+  assert.equal(accepted.code, 0);
+  assert.equal(accepted.value.explanation.packetId, f.packet.packetId);
+  assert.equal(await fs.readFile(f.input, 'utf8'), f.sourceText);
+  assert.throws(() => validateAgentProfile({ ...profile, args: ['--dangerously-bypass-approvals-and-sandbox'] }), { code: 'AGENT_PROFILE_INVALID' });
+});
+
 test('disabled, unapproved and unsupported restricted profiles never start the child', async () => {
   const f = await fixture(); const marker = path.join(f.dir, 'spawned');
   await fs.writeFile(f.fake, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`);
