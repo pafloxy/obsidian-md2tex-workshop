@@ -22,7 +22,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
   const writer = new SourceWriter({ app: plugin.app, MarkdownView: api.MarkdownView, sourceStore: sources });
   const runtime = {
-    plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null,
+    plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null, reviewLeaf: null,
     /** Resolve explicit worker/recipe settings without consulting cached note frontmatter. */
     configuration() {
       const folder = this.settings.outputFolder;
@@ -224,13 +224,15 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         if (this.disposed) throw new Error('Workshop unloaded before review');
         this.review = Object.freeze({ file, source: file.path, report: preview.artifacts.report, current: snapshot.text, candidate: candidate.toString('utf8') });
         const reviews = plugin.app.workspace.getLeavesOfType('md2tex-workshop-review');
-        if (reviews.length) {
-          for (const leaf of reviews) {
-            if (typeof leaf.view?.setReview !== 'function') throw new Error('The existing review tab cannot be refreshed safely; close it and request a fresh preview');
-            leaf.view.setReview(this.review);
-          }
-          await plugin.app.workspace.revealLeaf(reviews[0]);
-        } else await plugin.app.workspace.getLeaf('tab').setViewState({ type: 'md2tex-workshop-review', active: true });
+        let leaf = reviews.includes(this.reviewLeaf) ? this.reviewLeaf : null;
+        if (!leaf) {
+          leaf = plugin.app.workspace.getLeaf('tab');
+          await leaf.setViewState({ type: 'md2tex-workshop-review', active: true });
+          this.reviewLeaf = leaf;
+        }
+        if (typeof leaf.view?.setReview !== 'function') throw new Error('The review tab cannot display the exact fresh candidate; close it and request a new preview');
+        leaf.view.setReview(this.review);
+        await plugin.app.workspace.revealLeaf(leaf);
         return preview;
       } finally { this.controller.background.delete(abort); this.scheduler.held = false; this.scheduler.notify(); this.scheduler.drain(); }
     },
