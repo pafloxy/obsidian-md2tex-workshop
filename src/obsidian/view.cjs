@@ -178,8 +178,12 @@ function createReviewClass(api, runtime) {
     getDisplayText() { return 'TeX changes (review)'; }
     /** Use the native text comparison icon. */
     getIcon() { return 'file-diff'; }
+    /** Replace a stale native review with the exact newly sealed snapshot. */
+    setReview(review) { this.review = review; this.render(); }
     /** Show plain source text, never interpret candidate content as executable HTML. */
-    async onOpen() {
+    async onOpen() { this.render(); }
+    /** Render the currently bound immutable review and its matching Apply closure. */
+    render() {
       this.contentEl.empty();
       this.contentEl.createEl('h3', { text: 'TeX changes — review before applying' });
       if (!this.review) { this.contentEl.createEl('p', { text: 'Create a fresh preview from the Workshop to restore this review.' }); return; }
