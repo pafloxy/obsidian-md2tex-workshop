@@ -99,7 +99,7 @@ Publication checks the link state, source ownership, current TeX hash and file i
 | `CHECKPOINT_SOURCE_MOVED` | A moved pair retains its link but has an old source-path checkpoint. If TeX is unchanged, rebuild to create a current checkpoint; otherwise reconcile from the retained original state. |
 | `STALE_PREVIEW` | Source, TeX, checkpoint or candidate changed. Make a fresh preview; do not edit checksums. |
 | `MULTIPLE_EDITORS` | More than one Markdown view is open. Close the additional views, inspect the remaining buffer, and make a fresh preview. |
-| `EDITOR_SAVE_FAILED` / `APPLY_READBACK_CHANGED` | The editor may contain the reviewed candidate, but persistence was not verified and linked TeX was not acknowledged. Inspect the editor, disk file and retained backup before making a fresh preview. |
+| `EDITOR_SAVE_REQUEST_FAILED` / `EDITOR_SAVE_TIMEOUT` / `EDITOR_CHANGED_AFTER_APPLY` / `APPLY_READBACK_FAILED` / `APPLY_READBACK_CHANGED` | The editor may contain the reviewed candidate, but persistence was not verified and linked TeX was not acknowledged. Inspect the editor, disk file and retained backup before making a fresh preview. |
 | Publication/state-write interruption | Inspect the target, retained previous state/TeX and pending/checkpoint files. The next build stops on a hash mismatch; no blind rollback or automatic recovery is attempted. |
 
 All link/history files are local and retained. No dependencies, provider calls, automatic note migration or renderer extension are introduced.
