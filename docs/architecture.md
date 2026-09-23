@@ -19,12 +19,12 @@ flowchart LR
 | `markdown.cjs`, `reverse.cjs`, `reconcile.cjs` | Forward grammar, exact inverse candidates and conservative reconciliation | Arbitrary TeX interpretation |
 | `bibliography.cjs` | Resource insertion, one print location and backend-independent body representation | File discovery or raw-command expansion |
 | `workshop.cjs`, `process.cjs`, `diagnostics.cjs` | Isolated compilation, tool limits and audited results | User-facing editor transactions |
-| `roundtrip.cjs`, `targets.cjs` | Checkpoints, ownership, freshness, backups and approved disk apply | Bypassing an actively edited source |
+| `roundtrip.cjs`, `targets.cjs` | Checkpoints, prepared changes, ownership, freshness, backups and the legacy disk adapter | Host editor or vault transactions |
 | `protocol.cjs`, `jobs.cjs`, `capabilities.cjs` | Worker framing, snapshots, runtime identity and capabilities | AI providers |
 | `failure-packet.cjs`, `failure-record.cjs` | Bounded local evidence from retained attempts and request-bound worker/startup failures | Provider calls, live-note reads or source writes |
 | `explanation-contract.cjs` | Pure packet/response validation, identity and evidence-reference checks | Truth certification, UI rendering, dispatch or executable actions |
 | `agent-dispatch.cjs`, `agent-process.cjs` | Explicit trusted custom-wrapper invocation and bounded process capture | Compilation, source writes, verified isolation or automatic dispatch |
-| `src/obsidian/` | Capture, queue, client transport and output view | A second syntax or compiler implementation |
+| `src/obsidian/` | Capture, queue, client transport, guarded source-write adapters and output views | A second syntax or unchecked source writes |
 | `scripts/lib/public-release.cjs` | Explicit public selection and verified fresh source artifact | Updating Git history or publication |
 | `scripts/lib/plugin-package.cjs`, `brat-package.cjs` | Complete-directory staging, guarded installation and three-file release candidates | Native acceptance or publication |
 
@@ -34,4 +34,4 @@ Ordinary configuration resolves YAML, then control fallbacks, then the basic art
 
 The deterministic [failure-packet reader](failure-packets.md) prepares local evidence from retained attempts and desktop jobs, including startup and target-publication failures. The pure [response validator](explanations.md) accepts bounded text tied to the expected packet and supplied evidence. A manual [trusted local-agent bridge](agent-bridge.md) now supplies untrusted replies through the same validator; automatic agent dispatch and restricted isolation remain unimplemented. The beta agent boundary is explanation-only; a later proposal interface may supply candidate edits to a separate guarded acceptance path. Disabled AI must make zero provider calls. API and local-agent routes must share bounded contracts without authority over executables or source writes.
 
-The public CLI and three-file plugin candidates are implemented. Remaining beta work includes restricted agent isolation, named provider adapters, automatic explanation dispatch and UI attachment, guarded editor-aware apply and native BRAT acceptance. Standalone CLI failures before an attempt and failures before request capture retain their existing diagnostic-only route. AI-proposed editing follows the beta. Figures and broader conversion profiles remain separate increments with paired conversion/recovery tests.
+The public CLI and three-file plugin candidates are implemented. Guarded editor-aware apply now supports a closed saved note or exactly one open editor; additional views are refused. Remaining beta work includes native acceptance of that apply path, restricted agent isolation, named provider adapters, automatic explanation dispatch and UI attachment. Standalone CLI failures before an attempt and failures before request capture retain their existing diagnostic-only route. AI-proposed editing follows the beta. Figures and broader conversion profiles remain separate increments with paired conversion/recovery tests.

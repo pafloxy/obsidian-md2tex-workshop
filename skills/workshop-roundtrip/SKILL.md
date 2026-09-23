@@ -21,16 +21,10 @@ description: Review TeX edits for recovery into Markdown using Workshop checkpoi
    that snapshot. Resolve `RECIPE_CHANGED` with a new checkpoint after reconciling
    the recipe. Move explicit printing within marked body blocks; switch between
    automatic and explicit placement in Markdown before a new checkpoint.
-4. When the concrete change is accepted, pause editors/autosave for both
-   sources. Apply using the matching `tex-target-apply INPUT --preview REPORT`
-   or `tex-apply INPUT --preview REPORT` command. Freshness failures require a
-   new preview. Never bypass them or use direct file copying as apply.
+4. When the concrete change is accepted, keep TeX editing/autosave paused. In Obsidian, press **Apply to Markdown** in the exact review tab; zero open Markdown views use a guarded vault write, exactly one uses one editor transaction plus a public save request and bounded disk readback, and multiple views are refused. For CLI-only work, pause both editors and use the matching `tex-target-apply INPUT --preview REPORT` or `tex-apply INPUT --preview REPORT` command. Freshness failures require a new preview. Never bypass them or use direct file copying as apply.
 5. Read back the applied Markdown and backup evidence, then rebuild and verify
    the linked target if applicable. A successful apply is not the end of the
    cycle: confirm the next build includes the recovered edit and preserves
-   labels, code and raw islands. Keep native editor apply disabled until its
-   separate host-aware transaction is implemented and accepted.
+   labels, code and raw islands. If save, readback or linked-state finalization fails after the editor changes, inspect the editor, disk file and backup; never force an automatic rollback over later edits.
 
-For a disposable exercise, follow [the quickstart](../../examples/quickstart/README.md).
-For simultaneous changes, expose the conflict before choosing `--prefer`;
-that option is an explicit reconciliation choice, not an automatic repair.
+For a disposable exercise, follow [the quickstart](../../examples/quickstart/README.md). For simultaneous changes, expose the conflict before choosing `--prefer`; that option is an explicit reconciliation choice, not an automatic repair.
