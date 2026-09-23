@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { setTarget, targetStatus, unlinkTarget, buildLinked, previewTarget, applyTarget } = require('../src/core/targets.cjs');
+const { setTarget, targetStatus, unlinkTarget, buildLinked, previewTarget, prepareTargetApply, finalizeTargetApply, applyTarget } = require('../src/core/targets.cjs');
 const { execute } = require('./execute.cjs');
 const root = path.resolve(__dirname, '..');
 
@@ -65,6 +65,28 @@ test('a fixed TeX path evolves with backups and completes TeX to Markdown to TeX
   const compiled = await execute('latexmk', ['-norc', '-pdf', '-interaction=nonstopmode', '-halt-on-error', '-no-shell-escape', 'paper.tex'], { cwd: value.directory });
   assert.equal(compiled.code, 0, compiled.stdout + compiled.stderr);
   await fs.writeFile(path.join(value.directory, 'validation.json'), JSON.stringify({ first, second, blocked, preview, applied, continued }, null, 2) + '\n');
+});
+
+test('a host writer can commit one prepared candidate before linked state is finalized', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  const built = await buildLinked(value);
+  assert.equal(built.target.status, 'success', JSON.stringify(built));
+  const tex = await fs.readFile(value.target, 'utf8');
+  await fs.writeFile(value.target, tex.replace('The first paragraph is editable.', 'The first paragraph came back through a host writer.'));
+  const preview = await previewTarget(value);
+  assert.equal(preview.status, 'success', JSON.stringify(preview));
+  const prepared = await prepareTargetApply({ ...value, preview: preview.artifacts.report });
+  assert.equal(prepared.status, 'success', JSON.stringify(prepared));
+  assert.equal(await fs.readFile(value.input, 'utf8'), value.source, 'preparation cannot change the note');
+  assert.equal(await fs.readFile(prepared.artifacts.backup, 'utf8'), value.source);
+  const candidate = await fs.readFile(prepared.artifacts.candidate, 'utf8');
+  await fs.writeFile(value.input, candidate);
+  assert.equal((await targetStatus(value)).externallyEdited, true, 'host persistence alone cannot acknowledge TeX');
+  const finalized = await finalizeTargetApply({ ...value, permit: prepared.artifacts.permit });
+  assert.equal(finalized.status, 'success', JSON.stringify(finalized));
+  assert.equal(finalized.sourceHash, prepared.candidateHash);
+  assert.equal((await targetStatus(value)).externallyEdited, false);
 });
 
 test('CLI registration is visible independently of output root and refuses unmanaged targets', async () => {

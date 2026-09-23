@@ -11,7 +11,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { sourceHash: hash } = require('./protocol.cjs');
 const { build } = require('./workshop.cjs');
-const { checkout, sync, apply } = require('./roundtrip.cjs');
+const { checkout, sync, prepareApply, verifyPreparedApply, apply } = require('./roundtrip.cjs');
 
 /** Raise a stable linked-target diagnostic, separate from TeX compilation errors. */
 function fail(code, message) { throw Object.assign(new Error(message), { code }); }
@@ -196,6 +196,42 @@ async function previewTarget(options) {
   });
 }
 
+/** Prepare a linked reverse change for a host writer without changing Markdown or target state. */
+async function prepareTargetApply(options) {
+  const link = await load(options.input);
+  if (!link?.state.session) fail('TARGET_NOT_PUBLISHED', 'No published target checkpoint exists');
+  return locked(link, async () => {
+    await fresh(link);
+    const preview = JSON.parse((await read(path.resolve(options.preview))).bytes);
+    if (preview.texPath !== link.target || preview.session !== path.resolve(link.directory, link.state.session)) fail('WRONG_TARGET_PREVIEW', 'This preview belongs to a different target generation');
+    const prepared = await prepareApply({ input: link.input, preview: options.preview, context: {
+      schemaVersion: 'workshop-target-apply.v1', target: link.target, state: link.statePath,
+      bindingHash: link.bindingHash, stateHash: link.stateHash, generation: link.state.generation,
+    } });
+    return { schemaVersion: 'workshop-target-result.v1', command: 'tex-target-apply-prepare', status: 'success', outcome: 'ready',
+      source: link.input, target: link.target, sourceHash: prepared.source.sha256, candidateHash: prepared.candidate.sha256, texHash: prepared.tex.sha256,
+      artifacts: { permit: prepared.permit, candidate: prepared.candidate.path, backup: prepared.artifacts.backup } };
+  });
+}
+
+/** Acknowledge linked TeX only after a host writer persisted the exact prepared candidate. */
+async function finalizeTargetApply(options) {
+  const link = await load(options.input);
+  if (!link?.state.session) fail('TARGET_NOT_PUBLISHED', 'No published target checkpoint exists');
+  return locked(link, async () => {
+    await fresh(link);
+    const prepared = await verifyPreparedApply({ input: link.input, permit: options.permit });
+    const context = prepared.context;
+    if (context?.schemaVersion !== 'workshop-target-apply.v1' || context.target !== link.target || context.state !== link.statePath
+      || context.bindingHash !== link.bindingHash || context.stateHash !== link.stateHash || context.generation !== link.state.generation) fail('TARGET_STATE_CHANGED', 'The linked target changed after preparation; keep the Markdown backup and request a fresh preview');
+    if ((await read(link.target))?.sha256 !== prepared.tex.sha256) fail('TARGET_EDITED', 'TeX changed after Markdown was saved; keep both files and request a fresh preview');
+    await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: prepared.tex.sha256, buildKey: null });
+    return { schemaVersion: 'workshop-target-result.v1', command: 'tex-target-apply-finalize', status: 'success', outcome: 'applied',
+      source: link.input, target: link.target, generation: link.state.generation + 1, sourceHash: prepared.candidate.sha256, texHash: prepared.tex.sha256,
+      artifacts: { permit: prepared.permit, candidate: prepared.candidate.path, backup: prepared.artifacts.backup, updated: link.input } };
+  });
+}
+
 /** Explicit saved-file apply reuses existing preview/freshness/backup guards, then acknowledges TeX. */
 async function applyTarget(options) {
   const link = await load(options.input);
@@ -224,4 +260,4 @@ async function unlinkTarget({ input }) {
   });
 }
 
-module.exports = { setTarget, targetStatus, unlinkTarget, buildLinked, previewTarget, applyTarget };
+module.exports = { setTarget, targetStatus, unlinkTarget, buildLinked, previewTarget, prepareTargetApply, finalizeTargetApply, applyTarget };

@@ -14,14 +14,14 @@ const { parseArgs } = require('node:util');
 const { doctor, status } = require('../src/core/workshop.cjs');
 const { checkout, sync, apply, importTex } = require('../src/core/roundtrip.cjs');
 const { capabilities } = require('../src/core/capabilities.cjs');
-const { buildLinked: build, setTarget, targetStatus, unlinkTarget, previewTarget, applyTarget } = require('../src/core/targets.cjs');
+const { buildLinked: build, setTarget, targetStatus, unlinkTarget, previewTarget, prepareTargetApply, finalizeTargetApply, applyTarget } = require('../src/core/targets.cjs');
 
 /** Parse CLI options, call the core, and print one JSON result. */
 async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     help: { type: 'boolean', short: 'h' },
     prefer: { type: 'string' }, target: { type: 'string' },
-    preview: { type: 'string' },
+    preview: { type: 'string' }, permit: { type: 'string' },
     'body-only': { type: 'boolean' }, 'managed-group': { type: 'boolean' },
     profile: { type: 'string' }, 'allow-trusted-agent': { type: 'boolean' },
     'out-dir': { type: 'string' }, converter: { type: 'string' },
@@ -30,7 +30,7 @@ async function main() {
     bib: { type: 'string', multiple: true }, bibliography: { type: 'string' }, support: { type: 'string', multiple: true }, 'no-bib': { type: 'boolean' },
   } });
   if (values.help) {
-    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json|JOB/failure.json\n       node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON\n       node scripts/workshop.cjs agent-explain PACKET_JSON --profile PROFILE_JSON --allow-trusted-agent\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nAgent invocation is manual and trusted; restricted mode refuses until isolation is implemented.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
+    console.log('Usage: node scripts/workshop.cjs build INPUT --out-dir DIR\n       node scripts/workshop.cjs status INPUT --out-dir DIR\n       node scripts/workshop.cjs doctor [options]\n       node scripts/workshop.cjs capabilities\n       node scripts/workshop.cjs failure-packet ATTEMPT/result.json|JOB/failure.json\n       node scripts/workshop.cjs explanation-validate PACKET_JSON RESPONSE_JSON\n       node scripts/workshop.cjs agent-explain PACKET_JSON --profile PROFILE_JSON --allow-trusted-agent\n       node scripts/workshop.cjs tex-target INPUT --target NEW_TEX\n       node scripts/workshop.cjs tex-target-status INPUT\n       node scripts/workshop.cjs tex-target-unlink INPUT\n       node scripts/workshop.cjs tex-target-sync INPUT [--latexmk EXE]\n       node scripts/workshop.cjs tex-target-apply-prepare INPUT --preview REPORT\n       node scripts/workshop.cjs tex-target-apply-finalize INPUT --permit PERMIT\n       node scripts/workshop.cjs tex-target-apply INPUT --preview REPORT\n       node scripts/workshop.cjs worker REQUEST_JSON [--managed-group]\n       node scripts/workshop.cjs tex-checkout INPUT --out-dir DIR [build options]\n       node scripts/workshop.cjs tex-sync SESSION [--prefer md|tex] [--latexmk EXE] [--timeout-ms INTEGER]\n       node scripts/workshop.cjs tex-apply INPUT --preview REPORT\n       node scripts/workshop.cjs tex-import INPUT --out-dir DIR [--body-only]\nBuild options: --preamble FILE --engine pdflatex|xelatex|lualatex --vault-root DIR\n         --bib FILE (repeatable) --no-bib --bibliography none|bibtex|biblatex\n         --support FILE (repeatable)\n         --converter FILE --python EXE --latexmk EXE --timeout-ms INTEGER\nDocument settings: YAML > control options > basic article default.\n--no-bib disables fallback files; YAML resources still win.\nCheckpoints require the local structural converter. Sync previews never overwrite Markdown.\nApply requires a successful unchanged preview and creates a backup; pause editors first.\nImport creates review-only artifacts and does not execute TeX or authorize apply.\nAgent invocation is manual and trusted; restricted mode refuses until isolation is implemented.\nPrints JSON; exit 0 on success, 1 on diagnostic/build failure, 2 on invalid arguments.');
     return;
   }
   const command = positionals[0];
@@ -92,15 +92,18 @@ async function main() {
     console.log(JSON.stringify(await capabilities(), null, 2));
     return;
   }
-  const targetCommand = { 'tex-target': setTarget, 'tex-target-status': targetStatus, 'tex-target-unlink': unlinkTarget, 'tex-target-sync': previewTarget, 'tex-target-apply': applyTarget }[command];
+  const targetCommand = { 'tex-target': setTarget, 'tex-target-status': targetStatus, 'tex-target-unlink': unlinkTarget, 'tex-target-sync': previewTarget,
+    'tex-target-apply-prepare': prepareTargetApply, 'tex-target-apply-finalize': finalizeTargetApply, 'tex-target-apply': applyTarget }[command];
   if (targetCommand) {
-    const allowed = { 'tex-target': ['target'], 'tex-target-status': [], 'tex-target-unlink': [], 'tex-target-sync': ['latexmk', 'timeout-ms', 'prefer', 'managed-group'], 'tex-target-apply': ['preview'] }[command];
-    if (positionals.length !== 2 || Object.keys(values).some(key => !allowed.includes(key)) || (command === 'tex-target' && !values.target) || (command === 'tex-target-apply' && !values.preview)) throw new Error('Invalid linked-target command; see --help');
+    const allowed = { 'tex-target': ['target'], 'tex-target-status': [], 'tex-target-unlink': [], 'tex-target-sync': ['latexmk', 'timeout-ms', 'prefer', 'managed-group'],
+      'tex-target-apply-prepare': ['preview'], 'tex-target-apply-finalize': ['permit'], 'tex-target-apply': ['preview'] }[command];
+    if (positionals.length !== 2 || Object.keys(values).some(key => !allowed.includes(key)) || (command === 'tex-target' && !values.target)
+      || (['tex-target-apply', 'tex-target-apply-prepare'].includes(command) && !values.preview) || (command === 'tex-target-apply-finalize' && !values.permit)) throw new Error('Invalid linked-target command; see --help');
     const timeoutMs = Number(values['timeout-ms'] || 30000);
     if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 300000 || (values.prefer && !['md', 'tex'].includes(values.prefer))) throw new Error('Invalid timeout or reconciliation preference');
     let result;
     try {
-      const targetOptions = { input: positionals[1], target: values.target, preview: values.preview, latexmk: values.latexmk, timeoutMs, prefer: values.prefer };
+      const targetOptions = { input: positionals[1], target: values.target, preview: values.preview, permit: values.permit, latexmk: values.latexmk, timeoutMs, prefer: values.prefer };
       result = values['managed-group'] ? await require('../src/core/jobs.cjs').managedOperation(processOptions => targetCommand({ ...targetOptions, ...processOptions })) : await targetCommand(targetOptions);
     }
     catch (error) { result = { schemaVersion: 'workshop-target-result.v1', command, status: 'error', diagnostics: [{ code: error.code || 'TARGET_FAILED', message: error.message }] }; }

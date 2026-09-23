@@ -64,7 +64,19 @@ function host(vaultRoot, saved) {
   /** Represent the host's file type. */
   class TFile { /** Bind a vault-relative path. */ constructor(filename) { this.path = filename; } }
   /** Represent a public Markdown view with a mutable editor. */
-  class MarkdownView { /** Bind exact editor text independently of disk. */ constructor(file, text) { this.file = file; this.text = text; this.editor = { getValue: () => this.text }; } }
+  class MarkdownView {
+    /** Bind exact editor text and one public transaction/save-request history. */
+    constructor(file, text) {
+      this.file = file; this.text = text; this.transactions = []; this.undo = [];
+      this.editor = {
+        getValue: () => this.text,
+        offsetToPos: offset => { const before = this.text.slice(0, offset); const lines = before.split('\n'); return { line: lines.length - 1, ch: lines.at(-1).length }; },
+        transaction: (change, origin) => { this.undo.push(this.text); this.transactions.push({ change, origin }); this.text = change.changes[0].text; },
+      };
+    }
+    /** Schedule persistence through the public TextFileView save-request interface. */
+    requestSave() { void fs.writeFile(path.join(vaultRoot, this.file.path), this.text).then(() => vault.emit('modify', this.file)); }
+  }
   /** Supply the public ItemView content element. */
   class ItemView extends Component { /** Bind a leaf and stable content. */ constructor(leaf) { super(); this.leaf = leaf; this.contentEl = new Element(); } }
   /** Capture notices for assertions instead of showing native UI. */
@@ -74,6 +86,13 @@ function host(vaultRoot, saved) {
   const vault = new Events();
   vault.adapter = { getBasePath: () => vaultRoot };
   vault.readBinary = file => fs.readFile(path.join(vaultRoot, file.path));
+  vault.process = async (file, change) => {
+    const filename = path.join(vaultRoot, file.path);
+    const next = await change(await fs.readFile(filename, 'utf8'));
+    await fs.writeFile(filename, next);
+    vault.emit('modify', file);
+    return next;
+  };
   vault.getAbstractFileByPath = filename => fsSync.existsSync(path.join(vaultRoot, filename)) ? new TFile(filename) : null;
   const workspace = new Events();
   workspace.getLeavesOfType = type => leaves.filter(leaf => type === 'markdown' ? leaf.view instanceof MarkdownView : leaf.view?.getViewType?.() === type);
@@ -466,6 +485,14 @@ for (const format of ['direct', 'brat']) test(`CLI target discovery, auto-build,
   const candidateView = value.app.workspace.getLeavesOfType('md2tex-workshop-review')[0].view;
   assert.match(candidateView.candidateEl.text, /from TeX review/);
   assert.doesNotMatch(candidateView.currentEl.text, /from TeX review/);
+  await candidateView.applyButton.events.click();
+  assert.match(candidateView.applyStatusEl.text, /Applied and saved/);
+  assert.equal(editor.transactions.length, 1);
+  assert.equal(editor.transactions[0].origin, 'md2tex-workshop');
+  assert.equal(editor.undo.at(-1), source.replace('from Markdown', 'from the editor'));
+  assert.match(editor.text, /from TeX review/);
+  assert.match(await fs.readFile(path.join(dir, file.path), 'utf8'), /from TeX review/);
+  assert.equal(runtime.controller.state().linkedTarget.externallyEdited, false);
   value.app.workspace.active = { view: candidateView };
   value.app.workspace.emit('active-leaf-change', value.app.workspace.active);
   assert.equal(runtime.currentFile(), file, 'opening generated review Markdown must keep the original build target');

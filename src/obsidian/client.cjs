@@ -157,11 +157,13 @@ class ToolchainClient {
   }
 
   /** Run bounded linked-target control commands through the same packaged CLI. */
-  async targetCommand(command, canonicalPath, { target, signal, latexmk = 'latexmk', timeoutMs = 30000 } = {}) {
-    if (!['tex-target', 'tex-target-status', 'tex-target-sync'].includes(command)) throw failure('INVALID_TARGET_COMMAND', 'Unsupported host target operation');
+  async targetCommand(command, canonicalPath, { target, preview, permit, signal, latexmk = 'latexmk', timeoutMs = 30000 } = {}) {
+    if (!['tex-target', 'tex-target-status', 'tex-target-sync', 'tex-target-apply-prepare', 'tex-target-apply-finalize'].includes(command)) throw failure('INVALID_TARGET_COMMAND', 'Unsupported host target operation');
     const directory = await this.directory(command);
     const args = [command, canonicalPath];
     if (target) args.push('--target', target);
+    if (preview) args.push('--preview', preview);
+    if (permit) args.push('--permit', permit);
     if (command === 'tex-target-sync') args.push('--latexmk', latexmk, '--timeout-ms', String(timeoutMs), '--managed-group');
     const result = await this.run(args, directory, { signal, timeoutMs: command === 'tex-target-sync' ? timeoutMs + 5000 : 10000 });
     const value = response(result, this.nodeCommand);

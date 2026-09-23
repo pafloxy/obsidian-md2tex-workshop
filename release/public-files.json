@@ -84,6 +84,7 @@
     "src/obsidian/plugin.cjs",
     "src/obsidian/scheduler.cjs",
     "src/obsidian/source-store.cjs",
+    "src/obsidian/source-writer.cjs",
     "src/obsidian/view.cjs",
     "styles.css",
     "testing/agent-bridge.test.cjs",

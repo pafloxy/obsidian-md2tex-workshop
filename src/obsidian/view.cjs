@@ -166,30 +166,45 @@ function createViewClass(api, runtime) {
   };
 }
 
-/** Display sealed preview text without giving note-mutating plugins a Markdown editor. */
-function createReviewClass(api) {
-  /** Keep one immutable review snapshot per native tab; applying remains a separate operation. */
+/** Display sealed preview text with one explicit guarded apply action. */
+function createReviewClass(api, runtime) {
+  /** Keep one immutable review snapshot per native tab; applying remains a separate gesture. */
   return class WorkshopReview extends api.ItemView {
     /** Capture the exact displayed source and candidate, independently of later previews. */
     constructor(leaf, review) { super(leaf); this.review = review; }
     /** Identify a native review view that cannot become a Markdown build source. */
     getViewType() { return 'md2tex-workshop-review'; }
-    /** Mark this tab explicitly as read-only. */
-    getDisplayText() { return 'TeX changes (read-only)'; }
+    /** Mark this tab explicitly as a review surface. */
+    getDisplayText() { return 'TeX changes (review)'; }
     /** Use the native text comparison icon. */
     getIcon() { return 'file-diff'; }
     /** Show plain source text, never interpret candidate content as executable HTML. */
     async onOpen() {
       this.contentEl.empty();
-      this.contentEl.createEl('h3', { text: 'TeX changes — review only' });
+      this.contentEl.createEl('h3', { text: 'TeX changes — review before applying' });
       if (!this.review) { this.contentEl.createEl('p', { text: 'Create a fresh preview from the Workshop to restore this review.' }); return; }
       this.contentEl.createEl('p', { text: `Source: ${this.review.source}` });
-      this.contentEl.createEl('p', { text: 'The source is unchanged. Review this proposal before applying through the guarded CLI.' });
+      this.contentEl.createEl('p', { text: 'The source is unchanged. Applying will recheck the note, TeX, checkpoint, candidate and preview before saving.' });
       this.contentEl.createEl('p', { text: `Preview report: ${this.review.report}` });
       this.contentEl.createEl('h4', { text: 'Current Markdown' });
       this.currentEl = this.contentEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.current });
       this.contentEl.createEl('h4', { text: 'Proposed Markdown' });
       this.candidateEl = this.contentEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.candidate });
+      this.applyButton = this.contentEl.createEl('button', { text: 'Apply to Markdown' });
+      this.applyStatusEl = this.contentEl.createDiv({ cls: 'md2tex-workshop-status' });
+      this.applyStatusEl.setAttribute('role', 'status');
+      this.applyButton.addEventListener('click', async () => {
+        if (this.applyButton.disabled) return;
+        this.applyButton.disabled = true;
+        this.applyStatusEl.setText('Rechecking and applying the reviewed change…');
+        try {
+          await runtime.applyLinked(this.review);
+          this.applyStatusEl.setText('Applied and saved. Linked TeX and Markdown now agree.');
+        } catch (error) {
+          this.applyStatusEl.setText(`Not applied: ${error.message}`);
+          new api.Notice(error.message);
+        }
+      });
     }
   };
 }

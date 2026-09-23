@@ -6,6 +6,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { SourceStore } = require('./source-store.cjs');
+const { SourceWriter } = require('./source-writer.cjs');
 const { BuildController } = require('./controller.cjs');
 const { BuildScheduler } = require('./scheduler.cjs');
 const { sourceHash } = require('../core/protocol.cjs');
@@ -19,8 +20,9 @@ const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk',
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
 function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
+  const writer = new SourceWriter({ app: plugin.app, MarkdownView: api.MarkdownView, sourceStore: sources });
   const runtime = {
-    plugin, api, sources, settings: { ...defaults }, disposed: false, review: null,
+    plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null,
     /** Resolve explicit worker/recipe settings without consulting cached note frontmatter. */
     configuration() {
       const folder = this.settings.outputFolder;
@@ -220,9 +222,31 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         if (sourceHash(candidate) !== preview.candidateHash) throw new Error('The candidate changed before review; request a fresh preview');
         if (candidate.length > 2 * 1024 * 1024) throw new Error(`Preview exceeds the native review limit; inspect the CLI report: ${preview.artifacts.report}`);
         if (this.disposed) throw new Error('Workshop unloaded before review');
-        this.review = Object.freeze({ source: file.path, report: preview.artifacts.report, current: snapshot.text, candidate: candidate.toString('utf8') });
+        this.review = Object.freeze({ file, source: file.path, report: preview.artifacts.report, current: snapshot.text, candidate: candidate.toString('utf8') });
         await plugin.app.workspace.getLeaf('tab').setViewState({ type: 'md2tex-workshop-review', active: true });
         return preview;
+      } finally { this.controller.background.delete(abort); this.scheduler.held = false; this.scheduler.notify(); this.scheduler.drain(); }
+    },
+    /** Apply one exact reviewed candidate through the host writer, then acknowledge linked TeX. */
+    async applyLinked(review) {
+      if (this.scheduler.running || this.scheduler.held) throw new Error('Wait for the running operation before applying reviewed TeX changes');
+      if (!review?.file || review.file.path !== review.source || !review.report) throw new Error('Create a fresh TeX changes preview before applying');
+      this.scheduler.held = true; this.scheduler.notify();
+      const abort = new AbortController(); this.controller.background.add(abort);
+      let committed = false;
+      try {
+        const input = sources.canonical(review.file);
+        const client = new ToolchainClient(this.configuration());
+        const prepared = await client.targetCommand('tex-target-apply-prepare', input, { preview: review.report, signal: abort.signal });
+        await writer.apply(review.file, prepared);
+        committed = true;
+        const finalized = await client.targetCommand('tex-target-apply-finalize', input, { permit: prepared.artifacts.permit, signal: abort.signal });
+        this.controller.invalidate(review.file);
+        await this.controller.refreshTarget(review.file);
+        return finalized;
+      } catch (error) {
+        if (committed || error.partial) error.message = `Markdown may contain the reviewed change, but linked TeX was not acknowledged: ${error.message}. Keep the backup and request a fresh preview.`;
+        throw error;
       } finally { this.controller.background.delete(abort); this.scheduler.held = false; this.scheduler.notify(); this.scheduler.drain(); }
     },
     /** Register manual commands and passive freshness tracking; load existing settings without saving. */
@@ -233,7 +257,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       this.scheduler.configure({ enabled: this.settings.autoBuildEnabled === true, delayMs: Number(this.settings.buildDebounceMs) });
       const View = createViewClass(api, this);
       plugin.registerView('md2tex-workshop-view', leaf => new View(leaf));
-      const Review = createReviewClass(api);
+      const Review = createReviewClass(api, this);
       plugin.registerView('md2tex-workshop-review', leaf => new Review(leaf, this.review));
       const actions = [
         ['open-md2tex-workshop', 'Open md2tex Workshop', () => this.openView()],
@@ -242,6 +266,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         ['cancel-workshop-build', 'Cancel Workshop Build and Queue', () => this.scheduler.cancel()],
         ['open-linked-tex', 'Open Linked TeX Target', () => this.openLinked()],
         ['preview-linked-tex', 'Preview Linked TeX Changes as Markdown', () => this.previewLinked()],
+        ['apply-linked-tex-review', 'Apply Reviewed TeX Changes to Markdown', () => this.applyLinked(this.review)],
         ['reveal-compiled-pdf', 'Open Rendered PDF Tab', () => this.openArtifact('pdf')],
         ['open-generated-tex', 'Open Generated TeX', () => this.openArtifact('tex')],
         ['copy-generated-tex', 'Copy Generated TeX from Last Successful Build', () => this.copyGeneratedTex()],

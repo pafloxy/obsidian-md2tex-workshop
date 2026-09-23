@@ -28,9 +28,9 @@ async function capabilities() {
   await collect('assets');
   return { schemaVersion: 'workshop-capabilities.v1', command: 'capabilities', status: 'success', protocolVersion,
     toolchainFingerprint: sourceHash(JSON.stringify(files)), runtime: { node: process.versions.node, platform: process.platform },
-    commands: ['agent-explain', 'explanation-validate', 'failure-packet', 'build', 'doctor', 'status', 'tex-checkout', 'tex-sync', 'tex-apply', 'tex-import', 'capabilities', 'worker', 'tex-target', 'tex-target-status', 'tex-target-unlink', 'tex-target-sync', 'tex-target-apply'],
+    commands: ['agent-explain', 'explanation-validate', 'failure-packet', 'build', 'doctor', 'status', 'tex-checkout', 'tex-sync', 'tex-apply', 'tex-import', 'capabilities', 'worker', 'tex-target', 'tex-target-status', 'tex-target-unlink', 'tex-target-sync', 'tex-target-apply-prepare', 'tex-target-apply-finalize', 'tex-target-apply'],
     contracts: ['build-request', 'build-event', 'build-result', 'repair-context', 'repair-proposal'],
-    features: { failurePackets: true, explanationValidation: true, manualTrustedAgentExplanation: process.platform === 'linux', automaticAgentExplanation: false, linkedTexTarget: true, editorSnapshotBuild: true, progressEvents: true, cancellation: true, managedWorkerGroup: process.platform === 'linux', editorApply: false, managedRepair: false },
+    features: { failurePackets: true, explanationValidation: true, manualTrustedAgentExplanation: process.platform === 'linux', automaticAgentExplanation: false, linkedTexTarget: true, editorSnapshotBuild: true, progressEvents: true, cancellation: true, managedWorkerGroup: process.platform === 'linux', editorApply: true, managedRepair: false },
   };
 }
 

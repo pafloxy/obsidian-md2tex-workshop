@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { SourceStore } = require('../src/obsidian/source-store.cjs');
+const { SourceWriter } = require('../src/obsidian/source-writer.cjs');
 const { BuildController } = require('../src/obsidian/controller.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '../tmp/headless-state-vault');
@@ -29,6 +30,102 @@ function sourceFixture() {
   const sources = new SourceStore({ app, MarkdownView });
   return { app, leaves, reads, disk, sources };
 }
+
+test('a closed saved note is compare-written and read back through the vault', async () => {
+  await require('node:fs/promises').mkdir(root, { recursive: true });
+  const value = sourceFixture();
+  const file = { path: 'guarded.md' };
+  const source = '# Before\n'; const candidate = '# After review\n';
+  value.disk.set(file.path, source);
+  value.app.vault.process = async (target, change) => {
+    const next = await change(value.disk.get(target.path));
+    value.disk.set(target.path, next);
+    return next;
+  };
+  const candidatePath = path.join(root, 'prepared-candidate.md');
+  await require('node:fs/promises').writeFile(candidatePath, candidate);
+  const writer = new SourceWriter({ app: value.app, MarkdownView, sourceStore: value.sources });
+  const prepared = { status: 'success', outcome: 'ready', source: value.sources.canonical(file), sourceHash: sourceHash(source), candidateHash: sourceHash(candidate),
+    artifacts: { candidate: candidatePath, permit: path.join(root, 'permit.json') } };
+  const applied = await writer.apply(file, prepared);
+  assert.equal(applied.origin, 'vault');
+  assert.equal(value.disk.get(file.path), candidate);
+  value.disk.set(file.path, source + 'Later');
+  await assert.rejects(() => writer.apply(file, prepared), { code: 'STALE_PREVIEW' });
+  value.disk.set(file.path, source);
+});
+
+test('one open editor receives one undoable transaction, while multiple views are refused', async () => {
+  await require('node:fs/promises').mkdir(root, { recursive: true });
+  const value = sourceFixture();
+  const file = { path: 'editor.md' };
+  const source = '# Editor before\n'; const candidate = '# Editor after review\n';
+  value.disk.set(file.path, source);
+  const candidatePath = path.join(root, 'editor-candidate.md');
+  await require('node:fs/promises').writeFile(candidatePath, candidate);
+  const view = new MarkdownView(file, source);
+  const transactions = []; const undo = [];
+  view.editor.offsetToPos = offset => ({ line: 0, ch: offset });
+  view.editor.transaction = (change, origin) => {
+    transactions.push({ change, origin }); undo.push(view.text);
+    view.text = change.changes[0].text;
+  };
+  view.requestSave = () => value.disk.set(file.path, view.text);
+  value.leaves.push({ view });
+  const writer = new SourceWriter({ app: value.app, MarkdownView, sourceStore: value.sources });
+  const prepared = { status: 'success', outcome: 'ready', source: value.sources.canonical(file), sourceHash: sourceHash(source), candidateHash: sourceHash(candidate),
+    artifacts: { candidate: candidatePath, permit: path.join(root, 'editor-permit.json') } };
+  const applied = await writer.apply(file, prepared);
+  assert.equal(applied.origin, 'editor');
+  assert.equal(transactions.length, 1);
+  assert.equal(transactions[0].origin, 'md2tex-workshop');
+  assert.equal(undo[0], source);
+  assert.equal(view.text, candidate);
+  assert.equal(value.disk.get(file.path), candidate);
+  value.leaves.push({ view: new MarkdownView(file, candidate) });
+  await assert.rejects(() => writer.apply(file, { ...prepared, sourceHash: sourceHash(candidate) }), { code: 'MULTIPLE_EDITORS' });
+});
+
+test('an editor save timeout is reported as partial and never acknowledges disk persistence', async () => {
+  await require('node:fs/promises').mkdir(root, { recursive: true });
+  const value = sourceFixture();
+  const file = { path: 'save-failure.md' };
+  const source = '# Saved source\n'; const candidate = '# Candidate remains in editor\n';
+  value.disk.set(file.path, source);
+  const candidatePath = path.join(root, 'save-failure-candidate.md');
+  await require('node:fs/promises').writeFile(candidatePath, candidate);
+  const view = new MarkdownView(file, source);
+  view.editor.offsetToPos = offset => ({ line: 0, ch: offset });
+  view.editor.transaction = change => { view.text = change.changes[0].text; };
+  view.requestSave = () => {};
+  value.leaves.push({ view });
+  const writer = new SourceWriter({ app: value.app, MarkdownView, sourceStore: value.sources, saveTimeoutMs: 5, pollDelayMs: 1 });
+  const prepared = { status: 'success', outcome: 'ready', source: value.sources.canonical(file), sourceHash: sourceHash(source), candidateHash: sourceHash(candidate),
+    artifacts: { candidate: candidatePath, permit: path.join(root, 'save-failure-permit.json') } };
+  await assert.rejects(() => writer.apply(file, prepared), error => error.code === 'EDITOR_SAVE_TIMEOUT' && error.partial === true);
+  assert.equal(view.text, candidate);
+  assert.equal(value.disk.get(file.path), source);
+});
+
+test('an edit after the reviewed transaction prevents linked-state acknowledgement', async () => {
+  await require('node:fs/promises').mkdir(root, { recursive: true });
+  const value = sourceFixture();
+  const file = { path: 'changed-after-apply.md' };
+  const source = '# Saved source\n'; const candidate = '# Reviewed candidate\n';
+  value.disk.set(file.path, source);
+  const candidatePath = path.join(root, 'changed-after-apply-candidate.md');
+  await require('node:fs/promises').writeFile(candidatePath, candidate);
+  const view = new MarkdownView(file, source);
+  view.editor.offsetToPos = offset => ({ line: 0, ch: offset });
+  view.editor.transaction = change => { view.text = change.changes[0].text; };
+  view.requestSave = () => { view.text += 'User edit before persistence\n'; };
+  value.leaves.push({ view });
+  const writer = new SourceWriter({ app: value.app, MarkdownView, sourceStore: value.sources, saveTimeoutMs: 5, pollDelayMs: 1 });
+  const prepared = { status: 'success', outcome: 'ready', source: value.sources.canonical(file), sourceHash: sourceHash(source), candidateHash: sourceHash(candidate),
+    artifacts: { candidate: candidatePath, permit: path.join(root, 'changed-after-apply-permit.json') } };
+  await assert.rejects(() => writer.apply(file, prepared), error => error.code === 'EDITOR_CHANGED_AFTER_APPLY' && error.partial === true);
+  assert.equal(value.disk.get(file.path), source);
+});
 
 /** Bind a real source store to controlled worker/history promises. */
 function fixture() {

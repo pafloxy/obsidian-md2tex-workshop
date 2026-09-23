@@ -66,50 +66,135 @@ async function durableCreate(filename, content, mode = 0o600) {
   finally { await handle.close(); }
 }
 
+/** Validate an exact reviewed preview before any source-writing adapter receives it. */
+async function validateApplyPreview(options) {
+  const reportPath = path.resolve(options.preview);
+  const preview = JSON.parse(await readText(reportPath));
+  const { seal, ...sealed } = preview;
+  if (preview.schemaVersion !== 'workshop-roundtrip.v1' || preview.command !== 'tex-sync' || preview.status !== 'success' || preview.outcome !== 'ready' || hash(JSON.stringify(sealed)) !== seal) fail('INVALID_PREVIEW', 'Only an intact, successful tex-sync preview can be applied.');
+  const loaded = await loadSession(preview.session);
+  const sourcePath = path.resolve(options.input);
+  if (sourcePath !== loaded.baseline.sourcePath || sourcePath !== preview.source.path) fail('WRONG_APPLY_TARGET', 'The explicitly named Markdown is not the checkpoint source.');
+  const sourceIdentity = await targetIdentity(sourcePath);
+  const source = await readText(sourcePath, 4 * 1024 * 1024);
+  const candidatePath = path.join(path.dirname(reportPath), 'candidate.md');
+  const candidate = await readText(candidatePath, 4 * 1024 * 1024);
+  const texPath = path.resolve(preview.texPath || path.join(loaded.directory, 'main.tex'));
+  if (hash(source) !== preview.source.sha256 || hash(candidate) !== preview.candidateHash || loaded.sessionHash !== preview.sessionHash || hash(await readText(texPath)) !== preview.texHash) fail('STALE_PREVIEW', 'Markdown, TeX, candidate, or checkpoint changed since preview; rerun tex-sync before applying.');
+  const converted = convertMarkdown(parseSnapshot(candidate), sourcePath);
+  if (hash(converted.tex + '\n') !== preview.expectedBodyHash || converted.diagnostics.some(item => item.severity === 'error')) fail('STALE_PREVIEW', 'The candidate no longer regenerates the validated TeX.');
+  return { reportPath, preview, loaded, sourcePath, sourceIdentity, source, candidatePath, candidate, texPath };
+}
+
+/** Prepare a sealed, backed-up change for either the filesystem or an editor adapter. */
+async function prepareApply(options) {
+  const checked = await validateApplyPreview(options);
+  const application = path.join(path.dirname(checked.reportPath), 'applications', `${timestamp()}-${randomUUID()}`);
+  await fs.mkdir(application, { recursive: true });
+  const backup = path.join(application, 'original.md');
+  await durableCreate(backup, checked.source);
+  const pending = path.join(path.dirname(checked.sourcePath), `.${path.basename(checked.sourcePath)}.${randomUUID()}.pending`);
+  const record = {
+    schemaVersion: 'workshop-apply-permit.v1',
+    source: { path: checked.sourcePath, sha256: checked.preview.source.sha256, ino: checked.sourceIdentity.ino, dev: checked.sourceIdentity.dev, mode: checked.sourceIdentity.mode & 0o777 },
+    candidate: { path: checked.candidatePath, sha256: checked.preview.candidateHash },
+    tex: { path: checked.texPath, sha256: checked.preview.texHash },
+    session: { path: checked.loaded.sessionPath, sha256: checked.loaded.sessionHash },
+    preview: { path: checked.reportPath, seal: checked.preview.seal },
+    artifacts: { backup, pending },
+    context: options.context == null ? null : JSON.parse(JSON.stringify(options.context)),
+  };
+  const permit = path.join(application, 'permit.json');
+  await durableCreate(permit, JSON.stringify({ ...record, seal: hash(JSON.stringify(record)) }, null, 2) + '\n');
+  return Object.freeze({
+    permit,
+    source: Object.freeze({ ...record.source }),
+    candidate: Object.freeze({ ...record.candidate }),
+    tex: Object.freeze({ ...record.tex }),
+    session: Object.freeze({ ...record.session }),
+    artifacts: Object.freeze({ ...record.artifacts }),
+    context: record.context == null ? null : Object.freeze(record.context),
+  });
+}
+
+/** Load and recheck a prepared change; the record is evidence, never a reusable permission token. */
+async function inspectPreparedApply(options, expected) {
+  const permitPath = path.resolve(options.permit);
+  const permit = JSON.parse(await readText(permitPath, 64 * 1024));
+  const { seal, ...sealed } = permit;
+  if (permit.schemaVersion !== 'workshop-apply-permit.v1' || hash(JSON.stringify(sealed)) !== seal) fail('INVALID_APPLY_PERMIT', 'Apply preparation is missing, changed, or unsupported. Prepare a fresh reviewed change.');
+  for (const filename of [permit.source?.path, permit.candidate?.path, permit.tex?.path, permit.session?.path, permit.preview?.path, permit.artifacts?.backup, permit.artifacts?.pending]) {
+    if (typeof filename !== 'string' || !path.isAbsolute(filename) || path.normalize(filename) !== filename) fail('INVALID_APPLY_PERMIT', 'Apply preparation contains an invalid path.');
+  }
+  if (options.input && path.resolve(options.input) !== permit.source.path) fail('WRONG_APPLY_TARGET', 'This prepared change belongs to a different Markdown note.');
+  const application = path.dirname(permitPath);
+  const previewDirectory = path.dirname(path.dirname(application));
+  if (permit.artifacts.backup !== path.join(application, 'original.md') || permit.candidate.path !== path.join(previewDirectory, 'candidate.md') || permit.preview.path !== path.join(previewDirectory, 'preview.json')) fail('INVALID_APPLY_PERMIT', 'Apply preparation artifacts do not share the reviewed preview directory.');
+  const preview = JSON.parse(await readText(permit.preview.path));
+  const { seal: previewSeal, ...previewBody } = preview;
+  if (previewSeal !== permit.preview.seal || hash(JSON.stringify(previewBody)) !== previewSeal) fail('STALE_PREVIEW', 'The reviewed preview changed after preparation.');
+  const loaded = await loadSession(permit.session.path);
+  if (loaded.sessionHash !== permit.session.sha256 || loaded.baseline.sourcePath !== permit.source.path) fail('STALE_PREVIEW', 'The checkpoint changed after preparation.');
+  const candidate = await readText(permit.candidate.path, 4 * 1024 * 1024);
+  if (hash(candidate) !== permit.candidate.sha256 || hash(await readText(permit.tex.path, 8 * 1024 * 1024)) !== permit.tex.sha256) fail('STALE_PREVIEW', 'The candidate or TeX changed after preparation.');
+  const current = await readText(permit.source.path, 4 * 1024 * 1024);
+  if (expected === 'source') {
+    const identity = await targetIdentity(permit.source.path);
+    if (identity.ino !== permit.source.ino || identity.dev !== permit.source.dev || hash(current) !== permit.source.sha256) fail('STALE_PREVIEW', 'The Markdown note changed after preparation.');
+  } else if (expected === 'candidate' && hash(current) !== permit.candidate.sha256) fail('APPLY_READBACK_CHANGED', 'The saved Markdown does not match the reviewed candidate. No rollback was attempted.');
+  return { permitPath, permit, candidate };
+}
+
+/** Commit a prepared change with the legacy atomic filesystem adapter. */
+async function commitPreparedApply(options) {
+  const prepared = await inspectPreparedApply(options, 'source');
+  const target = prepared.permit.source.path;
+  const lockPath = target + '.md2tex-apply.lock';
+  let lock;
+  try { lock = await fs.open(lockPath, 'wx', 0o600); }
+  catch (error) { if (error.code === 'EEXIST') fail('APPLY_BUSY', `Another apply or stale lock exists: ${lockPath}. Inspect ownership before recovery.`); throw error; }
+  try {
+    await lock.writeFile(JSON.stringify({ pid: process.pid, timestamp: timestamp(), target, permit: prepared.permitPath }) + '\n');
+    await durableCreate(prepared.permit.artifacts.pending, prepared.candidate, prepared.permit.source.mode);
+    await inspectPreparedApply(options, 'source');
+    await fs.rename(prepared.permit.artifacts.pending, target);
+    if (hash(await readText(target)) !== prepared.permit.candidate.sha256) fail('APPLY_READBACK_CHANGED', 'Readback changed after replacement; pause other editors and inspect the backup. No rollback was attempted.');
+    return { status: 'success', outcome: 'committed', source: target, sourceHash: prepared.permit.candidate.sha256 };
+  } finally {
+    const owned = await lock.stat();
+    await lock.close();
+    const current = await fs.lstat(lockPath).catch(() => null);
+    if (current?.ino === owned.ino && current.dev === owned.dev) await fs.unlink(lockPath);
+  }
+}
+
+/** Verify persisted Markdown after any source-writing adapter has committed it. */
+async function verifyPreparedApply(options) {
+  const prepared = await inspectPreparedApply(options, 'candidate');
+  return Object.freeze({
+    permit: prepared.permitPath,
+    source: Object.freeze({ path: prepared.permit.source.path, sha256: prepared.permit.source.sha256 }),
+    candidate: Object.freeze({ path: prepared.permit.candidate.path, sha256: prepared.permit.candidate.sha256 }),
+    tex: Object.freeze({ ...prepared.permit.tex }),
+    artifacts: Object.freeze({ ...prepared.permit.artifacts }),
+    context: prepared.permit.context == null ? null : Object.freeze(prepared.permit.context),
+  });
+}
+
 /** Apply only an unchanged validated preview to an explicitly named, backed-up note. */
 async function apply(options) {
   return operation('tex-apply', async result => {
-    const reportPath = path.resolve(options.preview);
-    const preview = JSON.parse(await readText(reportPath));
-    const { seal, ...sealed } = preview;
-    if (preview.schemaVersion !== 'workshop-roundtrip.v1' || preview.command !== 'tex-sync' || preview.status !== 'success' || preview.outcome !== 'ready' || hash(JSON.stringify(sealed)) !== seal) fail('INVALID_PREVIEW', 'Only an intact, successful tex-sync preview can be applied.');
-    const loaded = await loadSession(preview.session);
-    const target = path.resolve(options.input);
-    if (target !== loaded.baseline.sourcePath || target !== preview.source.path) fail('WRONG_APPLY_TARGET', 'The explicitly named Markdown is not the checkpoint source.');
-    const originalStat = await targetIdentity(target);
-    const original = await readText(target, 4 * 1024 * 1024);
-    const candidate = await readText(path.join(path.dirname(reportPath), 'candidate.md'), 4 * 1024 * 1024);
-    if (hash(original) !== preview.source.sha256 || hash(candidate) !== preview.candidateHash || loaded.sessionHash !== preview.sessionHash || hash(await readText(preview.texPath || path.join(loaded.directory, 'main.tex'))) !== preview.texHash) fail('STALE_PREVIEW', 'Markdown, TeX, candidate, or checkpoint changed since preview; rerun tex-sync before applying.');
-    const converted = convertMarkdown(parseSnapshot(candidate), target);
-    if (hash(converted.tex + '\n') !== preview.expectedBodyHash || converted.diagnostics.some(item => item.severity === 'error')) fail('STALE_PREVIEW', 'The candidate no longer regenerates the validated TeX.');
-    const lockPath = target + '.md2tex-apply.lock';
-    let lock;
-    try { lock = await fs.open(lockPath, 'wx', 0o600); }
-    catch (error) { if (error.code === 'EEXIST') fail('APPLY_BUSY', `Another apply or stale lock exists: ${lockPath}. Inspect ownership before recovery.`); throw error; }
-    try {
-      await lock.writeFile(JSON.stringify({ pid: process.pid, timestamp: timestamp(), target, preview: reportPath }) + '\n');
-      const application = path.join(path.dirname(reportPath), 'applications', `${timestamp()}-${randomUUID()}`);
-      await fs.mkdir(application, { recursive: true });
-      result.artifacts.backup = path.join(application, 'original.md');
-      result.artifacts.report = path.join(application, 'apply.json');
-      await durableCreate(result.artifacts.backup, original);
-      const pending = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.pending`);
-      result.artifacts.pending = pending;
-      await durableCreate(pending, candidate, originalStat.mode & 0o777);
-      const finalStat = await targetIdentity(target);
-      if (finalStat.ino !== originalStat.ino || finalStat.dev !== originalStat.dev || hash(await readText(target)) !== preview.source.sha256 || hash(await readText(preview.texPath || path.join(loaded.directory, 'main.tex'))) !== preview.texHash) fail('STALE_PREVIEW', 'The note or TeX changed during apply; backup and pending candidate are retained without replacing the note.');
-      await fs.rename(pending, target);
-      delete result.artifacts.pending;
-      result.artifacts.updated = target;
-      if (hash(await readText(target)) !== preview.candidateHash) fail('APPLY_READBACK_CHANGED', 'Readback changed after replacement; pause other editors and inspect the backup. No rollback was attempted.');
-      result.outcome = 'applied';
-      result.diagnostics.push({ severity: 'warning', code: 'EDITOR_COORDINATION', message: 'Apply checks hashes and uses an atomic rename, but other editors do not share this lock. Keep editors/autosave paused during apply and reload the note afterward.' });
-    } finally {
-      const owned = await lock.stat();
-      await lock.close();
-      const current = await fs.lstat(lockPath).catch(() => null);
-      if (current?.ino === owned.ino && current.dev === owned.dev) await fs.unlink(lockPath);
-    }
+    const prepared = await prepareApply(options);
+    result.artifacts.backup = prepared.artifacts.backup;
+    result.artifacts.permit = prepared.permit;
+    result.artifacts.pending = prepared.artifacts.pending;
+    result.artifacts.report = path.join(path.dirname(prepared.permit), 'apply.json');
+    await commitPreparedApply({ input: options.input, permit: prepared.permit });
+    delete result.artifacts.pending;
+    await verifyPreparedApply({ input: options.input, permit: prepared.permit });
+    result.artifacts.updated = prepared.source.path;
+    result.outcome = 'applied';
+    result.diagnostics.push({ severity: 'warning', code: 'EDITOR_COORDINATION', message: 'Apply checks hashes and uses an atomic rename, but other editors do not share this lock. Keep editors/autosave paused during apply and reload the note afterward.' });
   });
 }
 
@@ -302,4 +387,4 @@ async function sync(options) {
   });
 }
 
-module.exports = { checkout, sync, apply, importTex };
+module.exports = { checkout, sync, prepareApply, commitPreparedApply, verifyPreparedApply, apply, importTex };
