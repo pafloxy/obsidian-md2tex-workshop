@@ -53,9 +53,9 @@ If a change originates privately, transfer only its reviewed patch onto a public
 
 ## Obsidian delivery gate
 
-The packager supports a complete companion directory for controlled local installation and a self-contained three-file candidate for BRAT. See [the BRAT package guide](brat.md) for `--format brat`, runtime restoration, integrity checks and prerequisites. The three-file candidate has isolated host-test coverage; hosted BRAT installation and native Obsidian acceptance are still release gates.
+The packager supports a complete companion directory for controlled local installation and a self-contained three-file candidate for BRAT. See [the BRAT package guide](brat.md) for `--format brat`, runtime restoration, integrity checks, and prerequisites. The three-file candidate has isolated host-test coverage, and the reviewed package has native acceptance on desktop Obsidian 1.13.7 in a disposable Linux vault. Hosted BRAT installation remains a release gate until the matching GitHub release is published and installed through BRAT.
 
-The current official workflow downloads `main.js`, `manifest.json` and optional `styles.css`; the release tag matches the numeric manifest version. Recheck the [official submission instructions](https://docs.obsidian.md/plugins/releasing/submit-plugin) and developer policies at submission time. Native PDF behavior and GUI Node selection need real host acceptance. Editor-aware apply and AI repair remain separate capabilities.
+The current official workflow downloads `main.js`, `manifest.json`, and optional `styles.css`; the release tag matches the numeric manifest version. Recheck the [official submission instructions](https://docs.obsidian.md/plugins/releasing/submit-plugin) and developer policies at submission time. Native PDF behavior, GUI Node selection, and editor-aware apply have acceptance on the recorded Linux/Obsidian baseline only. Managed AI repair remains unavailable.
 
 ## CI and dependencies
 

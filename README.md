@@ -1,88 +1,76 @@
 # md2tex Workshop
 
-Draft a technical note in Markdown, compile it to LaTeX and PDF, and review
-TeX edits before bringing them back into Markdown. The CLI runs locally and
-keeps build attempts, diagnostics and the last successful PDF.
+md2tex Workshop is a desktop Obsidian plugin for academic notes that keeps Markdown as the editable source, compiles it locally to LaTeX and PDF, shows the PDF and compiler evidence beside the note, and lets selected edits from a linked TeX file return through an explicit guarded review.
 
-This is an early **source release for the CLI**. The repository also contains
-an experimental desktop Obsidian adapter using the same compiler. Community
-Plugin installation is a later milestone; see [plugin status](docs/plugin-integration.md).
-AI repair is not implemented and no model or API account is required.
+The distinctive workflow is a controlled round trip rather than a one-way export:
 
-## Start here
-
-1. Download this repository using GitHub's **Code → Download ZIP**, or clone
-   the repository URL shown on its GitHub page. Extract/open the source folder.
-   If an agent is helping you, point it to [AGENT_SETUP.md](AGENT_SETUP.md).
-2. Use **Node.js 24** and an existing LaTeX installation containing `latexmk`,
-   `pdflatex`, BibTeX and the packages used by the default preamble. Linux with
-   Node 24.12.0 is the tested baseline. Other platforms and newer major Node
-   versions need their own validation. Node below 24 receives a setup diagnostic.
-3. From the **repository root**, check your tools:
-
-   ```sh
-   node --version
-   node scripts/workshop.cjs doctor
-   ```
-
-   `doctor` prints JSON and creates no build files. A successful result means
-   the selected paths and executables are available; it does not inspect every
-   TeX package. A real build below checks the example's package requirements.
-
-There are no npm runtime packages to install. `npm install` is unnecessary.
-The [basic article preamble](assets/preambles/basic-preamble.tex) uses AMS math
-and theorem packages, `aliascnt`, `hyperref` and `cleveref`. The broader
-[EPTCS preamble](assets/preambles/default-preamble.tex) remains an explicit choice.
-Missing system tools/packages must be installed separately with your permission.
-
-## Compile a note
-
-From the **repository root**:
-
-```sh
-node scripts/workshop.cjs build examples/quickstart/note.md --out-dir tmp/quickstart-builds
-node scripts/workshop.cjs status examples/quickstart/note.md --out-dir tmp/quickstart-builds
+```text
+Markdown note → generated TeX → PDF
+      ▲              │
+      └── reviewed TeX edits ── Preview → Apply
 ```
 
-On success, open the path in `artifacts.pdf`. `artifacts.tex` is the generated
-LaTeX document; `artifacts.log` is its compiler log. A later failed build keeps
-the previous successful PDF available through `status.lastSuccess`. Check
-`latestAttempt` when you want the newest diagnostics.
+Version 0.1.1 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
 
-For your own file, replace the input path and choose an output directory.
-Quote paths containing spaces. From a different directory, invoke the CLI by
-its absolute path. Relative command arguments and the default metadata root
-are resolved from that directory; `--vault-root DIRECTORY` overrides the base
-for note metadata such as bibliography and preamble paths.
+## Four claims, four demos
 
-## Keep compilation settings in the note
+| Main claim | What the plugin does | Runnable Markdown demo |
+| --- | --- | --- |
+| **Write readable academic Markdown.** | Native headings and callouts become sections, theorem-like objects, equations, labels, and references in LaTeX/PDF. | [Readable academic Markdown](examples/claims/01-readable-academic-markdown.md) |
+| **Keep TeX, PDF, and diagnostics local and inspectable.** | Every build creates a fresh retained attempt containing generated TeX, PDF, compiler log, source map, configuration, and result metadata; a failure does not replace the last successful PDF. | [Local TeX and PDF](examples/claims/02-local-tex-pdf.md) |
+| **Let each note own its document recipe.** | YAML can select the preamble, engine, bibliography backend, bibliography files, and explicit bibliography position, with recorded setting origins. | [Note-owned recipe](examples/claims/03-note-owned-recipe.md) |
+| **Bring selected TeX edits back without silently overwriting Markdown.** | A persistent linked TeX target uses anchored checkpoints, a read-only Preview, a separate Apply gesture, backups, exact freshness checks, conflict refusal, native editor save, and disk readback before acknowledgement. | [Guarded round trip](examples/claims/04-guarded-round-trip.md) |
 
-YAML settings take priority over CLI or Obsidian control defaults. With no
-preamble selection, Workshop uses its basic article preamble. For example:
+The [claim-demo index](examples/claims/README.md) gives repository-root commands for building all four notes.
 
-```yaml
----
-tex-workshop-preamble: preambles/article.tex
-tex-workshop-bibs:
-  - references/main.bib
-tex-workshop-bibliography: bibtex
----
-```
+## Install with BRAT
 
-These are local file paths, not embedded TeX/BibTeX contents. Cite a key using
-`[cite{example2026}]`, then put `[printbibliography]` on its own top-level line
-where the bibliography should appear. Omitting that command keeps automatic
-end placement. `tex-workshop-bibs: []` explicitly disables resources; `--no-bib`
-only disables fallback resources and cannot override a YAML list.
+The current [BRAT release workflow](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md) installs `main.js`, `manifest.json`, and `styles.css` from a matching GitHub release. After the `0.1.1` release is published with those three assets:
 
-Try the complete [preamble and bibliography example](examples/bibliography/README.md).
-The [CLI guide](docs/cli.md#note-metadata) describes path resolution, backend
-selection and diagnostics. Build JSON records setting origins in
-`profile.origins`; the Workshop panel shows them for the last build.
+1. In Obsidian, install and enable **BRAT** from **Settings → Community plugins**. Use BRAT 1.1.0 or newer for the release-based workflow.
+2. Open the command palette and run **BRAT: Add a beta plugin for testing**.
+3. Enter `https://github.com/pafloxy/obsidian-md2tex-workshop`.
+4. Track the latest release or freeze the installation to `0.1.1`.
+5. Enable **md2tex Workshop** under **Settings → Community plugins**.
+6. Open **md2tex Workshop settings** and set **Node executable** to a standalone Node.js 24 executable visible to Obsidian. Keep `latexmk` or set its absolute path when the GUI does not inherit your shell `PATH`.
 
-## Write readable mathematics
+BRAT installation requires the matching GitHub release; cloning the repository alone does not make a BRAT-installable beta. The release tag and the `version` inside the released `manifest.json` must both be `0.1.1`.
 
-Use native Markdown callouts with hidden label comments:
+## Prerequisites and tested platform
+
+- Desktop Obsidian; the manifest minimum is 1.7.2, while native acceptance for this beta was performed on Obsidian 1.13.7.
+- Linux is the verified host platform for managed worker-group cancellation and the complete native workflow. Other desktop platforms require their own acceptance run.
+- Node.js 24 or newer as an external executable. No npm runtime packages are installed.
+- A local TeX installation with `latexmk`, a supported engine (`pdflatex`, `xelatex`, or `lualatex`), and the packages used by the selected preamble. BibTeX or Biber is required only when the note selects that backend.
+
+The BRAT loader restores the bundled compiler/runtime beneath the plugin directory and verifies every restored file before loading it. It downloads no additional executable code and installs no npm packages. Node and the TeX toolchain remain user-owned system prerequisites.
+
+## First build in Obsidian
+
+1. Open one of the [claim demos](examples/claims/README.md) in an isolated test vault, or create a Markdown note using the supported authoring subset.
+2. Open the command palette and run **md2tex Workshop: Open md2tex Workshop**.
+3. Select the Markdown note and press **Build**. Automatic builds are off by default.
+4. Keep the note and Workshop pane side by side. The **PDF** tab shows the newest successful PDF; **Compiler log** shows the current attempt. A later failure keeps the previous PDF with a stale-revision message.
+5. Expand **Build and TeX controls** to open the PDF externally, open or copy generated TeX, pin the note, cancel work, or configure a linked TeX target.
+
+Builds capture the open editor snapshot without saving or rewriting the note. If multiple editors disagree about the same note, the build refuses rather than choosing one.
+
+## Guarded Markdown–TeX round trip
+
+Use [04-guarded-round-trip.md](examples/claims/04-guarded-round-trip.md) for the smallest complete exercise.
+
+1. In **Build and TeX controls**, enter a new `.tex` path relative to the note and choose **Use this target**. Existing or already claimed TeX files are not adopted or overwritten.
+2. Build the Markdown note. Workshop publishes an anchored TeX checkpoint to the named target while keeping ordinary build attempts separate.
+3. Edit prose inside the generated marker boundaries in the linked TeX file. Do not change anchors, the document wrapper, or frozen recipe files.
+4. Return to Obsidian and choose **Preview TeX changes**. Workshop validates the checkpoint, compiles the proposed candidate, and opens a native review tab showing the current and proposed Markdown. Preview never writes the note.
+5. Inspect the complete candidate and choose **Apply to Markdown** only if it is correct. With one open Markdown view, Workshop uses one undoable editor transaction, requests a native save, reads the persisted bytes back, and acknowledges the linked target only after the exact candidate hash matches. A closed note uses a guarded vault write; multiple views of the same note are refused.
+6. Build once more from Markdown. This confirms the recovered edit and creates the checkpoint for the next TeX editing round.
+
+The round trip intentionally handles a bounded TeX subset, not arbitrary collaborator-written LaTeX. Concurrent edits to the same anchored region produce `EDIT_CONFLICT`; changed markers, wrappers, recipes, dependencies, stale previews, and ambiguous inverses are refused with both sources preserved. See [linked targets](docs/linked-tex.md) and [round-trip guarantees](docs/roundtrip.md).
+
+## Authoring subset
+
+Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, theorem-like Obsidian callouts, proof callouts, equation callouts, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
 
 ```markdown
 # A useful identity
@@ -101,90 +89,75 @@ Use native Markdown callouts with hidden label comments:
 See [ref{lem:square}] and [ref{eq:square}].
 ```
 
-Plain `$$` displays remain unnumbered. Labels belong to explicit equation
-callouts, headings or theorem-like callouts. The converter does not customize
-Markdown viewers: Obsidian uses native callouts, other viewers may show their
-markers, and reference commands resolve to numbers in LaTeX/PDF. Read the
-[authoring contract](docs/authoring.md) for supported syntax and its limits.
+Plain `$$` displays remain unnumbered. Images, tables, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
 
-## Keep one editable TeX target
+## Note-owned compilation settings
 
-The [quickstart walkthrough](examples/quickstart/README.md) shows the complete
-cycle on a disposable copy. A linked target keeps a single TeX path while
-build attempts remain separate.
+YAML settings override plugin or CLI fallback controls. With no preamble selection, Workshop uses its bundled basic article recipe.
 
-1. From the **repository root**, create the example copy:
+```yaml
+---
+tex-workshop-preamble: preambles/article.tex
+tex-workshop-bibs:
+  - references/main.bib
+tex-workshop-bibliography: bibtex
+---
+```
 
-   ```sh
-   mkdir -p tmp/my-draft
-   cp examples/quickstart/note.md tmp/my-draft/note.md
-   node scripts/workshop.cjs tex-target tmp/my-draft/note.md --target tmp/my-draft/paper.tex
-   node scripts/workshop.cjs build tmp/my-draft/note.md --out-dir tmp/my-draft/builds
-   ```
+These fields contain local paths, not embedded TeX or BibTeX contents. `[printbibliography]` chooses one explicit top-level bibliography position; omitting it keeps automatic end placement. Recipe bytes are frozen into linked checkpoints, so recipe edits require reconciliation and a fresh checkpoint. See [the bibliography example](examples/bibliography/README.md) and [CLI metadata reference](docs/cli.md#note-metadata).
 
-   Choose a new target: existing manuscripts are not overwritten or silently
-   adopted. TeX ownership and retained checkpoints live beside the target.
-2. Edit prose inside the marked body of `tmp/my-draft/paper.tex`, then save it.
-   From the **repository root**, prepare a review:
+## CLI quick start
 
-   ```sh
-   node scripts/workshop.cjs tex-target-sync tmp/my-draft/note.md
-   ```
+The CLI is useful for automation, detailed status inspection, and reproducing a plugin build. Run these commands from the repository root:
 
-3. Inspect the returned candidate, diagnostics and PDF. After accepting the
-   proposed change, pause editing/autosave on both files. From the **repository
-   root**, replace the placeholder below with the returned preview report path:
+```sh
+node --version
+node scripts/workshop.cjs doctor
+node scripts/workshop.cjs build examples/quickstart/note.md --out-dir tmp/quickstart-builds
+node scripts/workshop.cjs status examples/quickstart/note.md --out-dir tmp/quickstart-builds
+```
 
-   ```sh
-   node scripts/workshop.cjs tex-target-apply tmp/my-draft/note.md --preview PATH_TO_PREVIEW_JSON
-   node scripts/workshop.cjs build tmp/my-draft/note.md --out-dir tmp/my-draft/builds
-   ```
+`doctor` is read-only and checks executable readiness, not every TeX package. A successful build returns paths under `artifacts`, including the PDF, TeX, log, source map, and retained result. There is no destructive clean command. The [CLI guide](docs/cli.md) documents every command and exit contract.
 
-Apply verifies freshness and creates backups. A changed source, candidate,
-recipe or target requires a new preview. A build can produce a good PDF while
-linked publication reports `TARGET_EDITED`; reconcile the TeX instead of
-repeating publication. See [linked targets](docs/linked-tex.md) and
-[round-trip guarantees](docs/roundtrip.md).
+## Failures and safe recovery
 
-## Limits, diagnostics and privacy
+| Symptom | Meaning and safe next action | Preserved evidence |
+| --- | --- | --- |
+| `TOOLCHAIN_START_FAILED` or no valid worker response | The configured Node executable could not run the bundled worker. Check the retained stderr path and configure a verified standalone Node 24 executable; retry is safe after correcting the executable. | Note, settings, job directory, and stderr remain. |
+| Missing `latexmk`, engine, BibTeX, or package | Tool discovery or TeX compilation failed after source capture. Inspect **Details and diagnostics** and the compiler log; install or select tools only with your own system authorization. | Source snapshot, configuration, diagnostics, log, and previous successful PDF remain. |
+| `TARGET_EDITED` | The linked TeX changed after its checkpoint or during publication. Preview/reconcile it; do not repeatedly rebuild over the target. | Markdown, linked TeX, checkpoints, and build attempt remain. |
+| `EDIT_CONFLICT` | Markdown and TeX changed the same conservative region. Inspect the retained current Markdown and edited TeX, then choose authority explicitly or reconcile manually. | Neither source is overwritten. |
+| `STALE_PREVIEW`, `EDITOR_CHANGED_AFTER_APPLY`, or save/readback refusal | An input changed or exact native persistence could not be proved. Inspect the editor, disk note, preview, permit, and backup; request a fresh preview. Never force an automatic rollback over later edits. | Candidate, original backup, application metadata, and both sources remain. |
+| `RUNTIME_INTEGRITY` | The self-restored bundled runtime is incomplete or changed. Disable the plugin, preserve and move the named runtime directory aside, then re-enable to restore a fresh copy. | The suspect runtime is retained for inspection; notes and settings are untouched. |
 
-This is a bounded drafting language, not a complete Markdown or TeX importer.
-Tables, images, note transclusion and some Markdown extensions are unsupported.
-Use explicit raw-TeX fences for content requiring TeX, with a suitable preamble.
-Unknown extensions may remain literal: inspect the result before distribution.
+The [CLI diagnostics matrix](docs/cli.md#failure-and-recovery) and [plugin integration guide](docs/plugin-integration.md#failures-and-verification) cover the complete stable error set.
 
-Run `node scripts/workshop.cjs --help` from the repository root for commands.
-The [CLI guide](docs/cli.md) explains options, metadata, exit codes and recovery.
-Start with the reported stage and source line; retain logs and backups when a
-build or round trip fails. There is no destructive clean command.
+## Privacy and trust boundary
 
-Compilation uses local programs, disables TeX shell escape, and makes no
-intentional network/provider requests. Executables, custom converters and raw
-TeX must still be trusted: this tool is not an untrusted-document sandbox.
-Build history includes source text and local paths. Keep output directories,
-`.workshop` histories and user configuration out of public repositories.
+Ordinary compilation and round-trip operations run local programs and make no intentional network or model-provider request. TeX shell escape is disabled. Source snapshots, build attempts, logs, backups, linked checkpoints, and local paths are retained on disk; keep them out of public repositories when they contain private material.
 
-## Tests and development
+Node, TeX, custom converters, raw TeX, and any manually configured agent executable remain trusted local code. This plugin is not an untrusted-document sandbox. Agent explanation is not automatically configured or invoked by the plugin, and managed source repair remains unavailable.
 
-From the **repository root**, with Node 24 available:
+## Release and verification status
+
+The v0.1.1 candidate consists of exactly `main.js`, `manifest.json`, and `styles.css`. Packaging restores a hash-verified bundled runtime on first load. Automated checks cover deterministic packaging, relocated loading, runtime tamper refusal, editor snapshot builds, native-write guards, linked targets, round trips, PDF/log state, and CLI behavior. A disposable Linux vault running Obsidian 1.13.7 has exercised package loading, command registration, PDF/log output, the exact Preview → Apply → disk-readback → guarded-finalize path, and the required post-Apply rebuild.
+
+These results do not establish behavior on every Obsidian, operating-system, Node, or TeX version. Hosted BRAT download is established only after the matching GitHub release exists and is installed through BRAT; local packaging or direct installation alone does not prove that hosted path.
+
+## Development
+
+From the repository root:
 
 ```sh
 npm run test:fast
 npm test
+node scripts/package-plugin.cjs --format brat --out-dir tmp/brat-candidate
+node scripts/public-release.cjs export --out-dir tmp/public-candidate
+node scripts/public-release.cjs verify --out-dir tmp/public-candidate
 ```
 
-The full suite requires local TeX/BibTeX, Python 3 for the external-adapter tests,
-and Poppler's `pdftotext`/`pdfinfo`. Test artifacts stay under `tmp/`; failures
-retain their evidence. No test accesses a running Obsidian instance. See
-[contributing](CONTRIBUTING.md), [architecture](docs/architecture.md) and
-[release maintenance](docs/releasing.md).
-
-[skills/](skills/README.md) contains optional agent workflows for compilation,
-guarded round trips and release preparation. They are ordinary local files;
-reading them does not install anything or grant permission to edit your notes.
+The full suite additionally needs Python 3, TeX/BibTeX, and Poppler. The optional Biber case is disabled unless explicitly enabled. Read [contributing](CONTRIBUTING.md), [architecture](docs/architecture.md), [BRAT packaging](docs/brat.md), and [release maintenance](docs/releasing.md) before changing release boundaries.
 
 ## License
 
-Project-owned source, documentation and skills: Copyright 2026 Rajarsi,
-[Apache-2.0](LICENSE). Bundled EPTCS assets retain their own licenses and
-attribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
+Project-owned source, documentation, and skills are Copyright 2026 Rajarsi and licensed under [Apache-2.0](LICENSE). Bundled EPTCS assets retain their own licenses and attribution; see [third-party notices](THIRD_PARTY_NOTICES.md).

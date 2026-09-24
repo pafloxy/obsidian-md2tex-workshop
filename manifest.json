@@ -3,7 +3,7 @@
   "name": "md2tex Workshop",
   "version": "0.1.1",
   "minAppVersion": "1.7.2",
-  "description": "Manual Markdown to TeX to PDF workshop using a shared local compiler and latexmk.",
+  "description": "Local Markdown-to-TeX/PDF workshop with side-by-side output and guarded linked-TeX round trips.",
   "author": "Rajarsi",
   "isDesktopOnly": true
 }

@@ -10,4 +10,4 @@ Copy is disabled until a successful build exists. A missing artifact, clipboard 
 
 **Set TeX target** expands the controls and focuses the target path. Enter a new path relative to the note and select **Use this target**. Existing ownership and publication checks still apply; see [linked TeX](linked-tex.md).
 
-This panel is included in the current complete-directory development package. Standard BRAT distribution and native editor-aware recovery apply remain separate milestones. See [plugin integration](plugin-integration.md) for packaging and installation boundaries.
+This panel and native editor-aware recovery are included in the self-contained three-file BRAT candidate. The reviewed package has native acceptance on desktop Obsidian 1.13.7 in a disposable Linux vault; a hosted BRAT download remains unverified until the matching GitHub release is published and installed. See [plugin integration](plugin-integration.md) for packaging and installation boundaries.

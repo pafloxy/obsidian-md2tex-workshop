@@ -1,8 +1,8 @@
 # Plugin integration and packaging
 
-The repository contains an experimental desktop adapter over the shared CLI worker: captured editor snapshots, manual queue, optional automatic builds, PDF/log tabs, fixed TeX targets, reverse preview and guarded editor-aware apply. Managed AI repair is not implemented. See [linked TeX](linked-tex.md).
+The repository contains a desktop adapter over the shared CLI worker: captured editor snapshots, manual queue, optional automatic builds, PDF/log tabs, fixed TeX targets, reverse preview, and guarded editor-aware apply. The adapter is packaged as a self-contained three-file BRAT candidate. Managed AI repair is not implemented. See [linked TeX](linked-tex.md).
 
-This source release supports CLI use. The complete-directory package below is for controlled local development; standard Community Plugin distribution is pending. See [release gates](releasing.md#obsidian-delivery-gate) and [architecture](architecture.md). These instructions do not authorize changes to an active vault or establish acceptance on your Obsidian version.
+The complete-directory package below is for controlled local development and hash-reviewed local installation. The three-file package is the BRAT release unit. Native acceptance has been completed on desktop Obsidian 1.13.7 in a disposable Linux vault; a hosted BRAT download remains pending until the matching GitHub release is published. See [release gates](releasing.md#obsidian-delivery-gate) and [architecture](architecture.md). These instructions do not authorize changes to an active vault or establish acceptance on another Obsidian or operating-system version.
 
 ## Stage a complete package
 
@@ -30,7 +30,7 @@ workshop-package.json         file sizes, SHA-256 hashes and package identity
 
 Packaging reads only the selected source/code/assets, uses no network and never includes settings, source notes, credentials, runtime outputs or dependencies. It rejects symlinks, non-regular members and existing output destinations. Incomplete output from an I/O failure is retained; retry in a fresh directory. The thin host entry uses Node `createRequire` at its installed path to load the companion host modules, injecting Obsidian types at that seam. Compiler execution stays in the external worker. No bundler or new dependency is needed for this complete-directory delivery contract.
 
-The complete directory is the installation unit for this personal workshop. Uploading only `main.js` does not deliver its companion. Community distribution and its provisioning mechanism are deferred. Runtime verification used the installed Node v24.12.0 on Linux; other runtime/platform combinations need checks.
+The complete directory is the controlled local installation unit. For BRAT, `main.js` embeds the complete companion and restores it under the plugin directory on first load; the release must also include the matching `manifest.json` and `styles.css`. Runtime verification used Node v24.12.0 on Linux; other runtime/platform combinations need checks.
 
 The GUI can resolve a different `node` from the terminal. On this machine, Obsidian's default resolved to Node 12.22.9, which failed before the CLI started. Set **Node executable** to the absolute path of the verified standalone Node installation and save it through plugin settings; temporary runtime changes do not survive reload. Startup failures now retain their stderr path and report `TOOLCHAIN_START_FAILED` instead of hiding the cause behind a JSON parse error.
 
