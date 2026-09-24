@@ -39,7 +39,10 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
     /** Convert action errors to a notice; diagnostics remain in controller state and retained logs. */
     async perform(action) {
       try { return await action(); }
-      catch (error) { if (!this.disposed) new api.Notice(error.message); return null; }
+      catch (error) {
+        if (!this.disposed) new api.Notice(`${error.code ? `${error.code}: ` : ''}${error.message}`, 15000);
+        return null;
+      }
     },
     /** Choose a pinned note or the active Markdown editor before opening a workshop/PDF leaf. */
     currentFile() {

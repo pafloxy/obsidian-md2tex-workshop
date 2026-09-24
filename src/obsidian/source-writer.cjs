@@ -5,6 +5,7 @@
  */
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
+const { Buffer } = require('node:buffer');
 const path = require('node:path');
 const { TextDecoder } = require('node:util');
 const { sourceHash, limits } = require('../core/protocol.cjs');
@@ -65,7 +66,7 @@ class SourceWriter {
     if (!compared) writerError('VAULT_WRITE_UNCONFIRMED', 'The vault did not compare the saved note before writing it');
     if (this.sources.editors(file.path).length) writerError('SOURCE_OPENED_DURING_APPLY', 'The note opened during the saved-file write; linked TeX was not acknowledged');
     const bytes = await this.app.vault.readBinary(file);
-    if (sourceHash(bytes) !== prepared.candidateHash) writerError('APPLY_READBACK_CHANGED', 'The saved note does not match the reviewed candidate; linked TeX was not acknowledged');
+    if (sourceHash(Buffer.from(bytes)) !== prepared.candidateHash) writerError('APPLY_READBACK_CHANGED', 'The saved note does not match the reviewed candidate; linked TeX was not acknowledged');
     return Object.freeze({ status: 'success', origin: 'vault', source: prepared.canonicalPath, sourceHash: prepared.candidateHash, permit: prepared.permit });
   }
 
@@ -87,7 +88,7 @@ class SourceWriter {
       let bytes;
       try { bytes = await this.app.vault.readBinary(file); }
       catch (error) { writerError('APPLY_READBACK_FAILED', `The editor contains the reviewed candidate, but disk readback failed: ${error.message}`, true); }
-      const diskHash = sourceHash(bytes);
+      const diskHash = sourceHash(Buffer.from(bytes));
       if (diskHash === prepared.candidateHash) {
         if (file.path !== view.file?.path || this.sources.canonical(file) !== prepared.canonicalPath || sourceHash(editor.getValue()) !== prepared.candidateHash) writerError('EDITOR_CHANGED_AFTER_APPLY', 'The editor changed while disk persistence was being verified; linked TeX was not acknowledged', true);
         break;

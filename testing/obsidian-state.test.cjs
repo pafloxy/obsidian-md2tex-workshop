@@ -25,7 +25,7 @@ function sourceFixture() {
   const leaves = [];
   const reads = [];
   const disk = new Map();
-  const app = { vault: { adapter: { getBasePath: () => root }, readBinary: async file => { reads.push(file.path); return Buffer.from(disk.get(file.path) || ''); } },
+  const app = { vault: { adapter: { getBasePath: () => root }, readBinary: async file => { reads.push(file.path); return Uint8Array.from(Buffer.from(disk.get(file.path) || '')).buffer; } },
     workspace: { getLeavesOfType: () => leaves } };
   const sources = new SourceStore({ app, MarkdownView });
   return { app, leaves, reads, disk, sources };
