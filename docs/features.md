@@ -1,0 +1,33 @@
+# Features and current limits
+
+This page states the implemented md2tex Workshop feature set at version 0.1.2. It separates tested capabilities from release and platform gates that remain open.
+
+## Main features
+
+| Feature | What works now | Evidence or entry point |
+| --- | --- | --- |
+| Readable academic Markdown | Headings, supported callouts, equations, hidden labels, references, citations, lists, math, raw TeX fences, and ordinary prose convert through the documented structural subset. | [Authoring contract](authoring.md); [readable Markdown demo](../examples/claims/01-readable-academic-markdown.md) |
+| Local TeX/PDF build | Manual builds retain source snapshots, TeX, PDF, logs, maps, configuration, and result metadata. A failed build retains the last successful PDF. | [Local build demo](../examples/claims/02-local-tex-pdf.md); [panel guide](panel.md) |
+| Note-owned recipe | YAML selects the document engine, preamble, bibliography backend, bibliography files, and bibliography location. | [Recipe demo](../examples/claims/03-note-owned-recipe.md) |
+| Guarded TeX round trip | A linked target supports checkpointed Markdown to TeX, read-only TeX-to-Markdown preview, explicit apply, backups, exact freshness checks, one-editor native save, disk readback, and post-apply rebuilding. | [Round-trip demo](../examples/claims/04-guarded-round-trip.md); [round-trip guide](roundtrip.md) |
+| Fast hidden-label entry | **md2tex Workshop: Insert Label Metadata** inserts `<!-- [label{}] -->` at the active Markdown cursor and leaves the cursor between the braces. The bundled `Mod+Shift+L` hotkey is editable in Obsidian Settings → Hotkeys. | [One-minute label demo](../examples/claims/05-label-shortcut.md) |
+
+## What the label shortcut does and does not do
+
+1. Place the editor cursor immediately below a heading or on the first nonblank body line of a supported callout.
+2. Run **md2tex Workshop: Insert Label Metadata** or press `Mod+Shift+L`.
+3. Type a nonempty identifier inside the braces, for example `sec:methods`, `lem:control`, or `eq:energy`.
+4. Build normally; the converter validates placement and identifier syntax.
+
+The shortcut neither generates identifiers nor decides what an arbitrary nearby block should label. It does not make plain display math numbered, attach a label to proofs, generic callouts, or deep headings, or bypass the normal converter checks. Use an `[!equation]` callout for a numbered equation. The precise accepted ownership positions and identifier alphabet are in the [authoring contract](authoring.md#commands-and-ordinary-viewers).
+
+## Current limits and release gates
+
+| Scope | Current state |
+| --- | --- |
+| Markdown coverage | The converter is a bounded structural subset, not a complete CommonMark/Obsidian/LaTeX parser. Images, tables, transclusions, arbitrary Markdown extensions, and broad existing-manuscript adoption remain unsupported. |
+| TeX recovery | The guarded inverse only accepts bounded, exact-regenerating TeX edits. Changed anchors, wrappers, recipes, dependencies, stale previews, conflicts, and ambiguous inverse cases are refused without silently overwriting either source. |
+| Editor shortcut | The default shortcut is a normal Obsidian command hotkey, so users may rebind or remove it. Packaged-host tests verify bytes and cursor placement; each target platform still benefits from a local native check. |
+| BRAT availability | A local three-file candidate can be packaged and inspected. Hosted BRAT installation exists only after a matching `0.1.2` GitHub release is published and installed through BRAT. |
+
+No network or model-provider call is required for ordinary builds, label insertion, or round trips. See [release maintenance](releasing.md) for the public-release and hosted-BRAT boundaries.

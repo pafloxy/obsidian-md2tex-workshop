@@ -10,9 +10,9 @@ Markdown note → generated TeX → PDF
       └── reviewed TeX edits ── Preview → Apply
 ```
 
-Version 0.1.1 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
+Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
 
-## Four claims, four demos
+## Five claims, five demos
 
 | Main claim | What the plugin does | Runnable Markdown demo |
 | --- | --- | --- |
@@ -20,21 +20,22 @@ Version 0.1.1 is a Linux-first beta candidate. The three-file BRAT package and n
 | **Keep TeX, PDF, and diagnostics local and inspectable.** | Every build creates a fresh retained attempt containing generated TeX, PDF, compiler log, source map, configuration, and result metadata; a failure does not replace the last successful PDF. | [Local TeX and PDF](examples/claims/02-local-tex-pdf.md) |
 | **Let each note own its document recipe.** | YAML can select the preamble, engine, bibliography backend, bibliography files, and explicit bibliography position, with recorded setting origins. | [Note-owned recipe](examples/claims/03-note-owned-recipe.md) |
 | **Bring selected TeX edits back without silently overwriting Markdown.** | A persistent linked TeX target uses anchored checkpoints, a read-only Preview, a separate Apply gesture, backups, exact freshness checks, conflict refusal, native editor save, and disk readback before acknowledgement. | [Guarded round trip](examples/claims/04-guarded-round-trip.md) |
+| **Add supported labels without leaving the Markdown editor.** | A command and bundled `Mod+Shift+L` hotkey insert a hidden label comment and place the caret inside the identifier braces. | [Label shortcut](examples/claims/05-label-shortcut.md) |
 
-The [claim-demo index](examples/claims/README.md) gives repository-root commands for building all four notes.
+The [claim-demo index](examples/claims/README.md) gives repository-root commands for building all five notes.
 
 ## Install with BRAT
 
-The current [BRAT release workflow](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md) installs `main.js`, `manifest.json`, and `styles.css` from a matching GitHub release. After the `0.1.1` release is published with those three assets:
+The current [BRAT release workflow](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md) installs `main.js`, `manifest.json`, and `styles.css` from a matching GitHub release. After the `0.1.2` release is published with those three assets:
 
 1. In Obsidian, install and enable **BRAT** from **Settings → Community plugins**. Use BRAT 1.1.0 or newer for the release-based workflow.
 2. Open the command palette and run **BRAT: Add a beta plugin for testing**.
 3. Enter `https://github.com/pafloxy/obsidian-md2tex-workshop`.
-4. Track the latest release or freeze the installation to `0.1.1`.
+4. Track the latest release or freeze the installation to `0.1.2`.
 5. Enable **md2tex Workshop** under **Settings → Community plugins**.
 6. Open **md2tex Workshop settings** and set **Node executable** to a standalone Node.js 24 executable visible to Obsidian. Keep `latexmk` or set its absolute path when the GUI does not inherit your shell `PATH`.
 
-BRAT installation requires the matching GitHub release; cloning the repository alone does not make a BRAT-installable beta. The release tag and the `version` inside the released `manifest.json` must both be `0.1.1`.
+BRAT installation requires the matching GitHub release; cloning the repository alone does not make a BRAT-installable beta. The release tag and the `version` inside the released `manifest.json` must both be `0.1.2`.
 
 ## Prerequisites and tested platform
 
@@ -91,6 +92,10 @@ See [ref{lem:square}] and [ref{eq:square}].
 
 Plain `$$` displays remain unnumbered. Images, tables, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
 
+### Insert a hidden label quickly
+
+In a Markdown editor, run **md2tex Workshop: Insert Label Metadata** from the command palette or press `Mod+Shift+L`. It inserts `<!-- [label{}] -->` at the cursor and leaves the cursor inside `{}`; type a nonempty identifier such as `lem:nonnegative-square`. `Mod` means Ctrl on Linux/Windows and Command on macOS. The shortcut is bundled but can be changed or removed in **Settings → Hotkeys**. Put the completed comment immediately below a heading or as a callout's first nonblank body line, as required by the [authoring contract](docs/authoring.md#commands-and-ordinary-viewers). The command does not infer an identifier, validate it as you type, or attach it to arbitrary Markdown positions. Open the [label-shortcut demo](examples/claims/05-label-shortcut.md) for a one-minute exercise.
+
 ## Note-owned compilation settings
 
 YAML settings override plugin or CLI fallback controls. With no preamble selection, Workshop uses its bundled basic article recipe.
@@ -140,7 +145,7 @@ Node, TeX, custom converters, raw TeX, and any manually configured agent executa
 
 ## Release and verification status
 
-The v0.1.1 candidate consists of exactly `main.js`, `manifest.json`, and `styles.css`. Packaging restores a hash-verified bundled runtime on first load. Automated checks cover deterministic packaging, relocated loading, runtime tamper refusal, editor snapshot builds, native-write guards, linked targets, round trips, PDF/log state, and CLI behavior. A disposable Linux vault running Obsidian 1.13.7 has exercised package loading, command registration, PDF/log output, the exact Preview → Apply → disk-readback → guarded-finalize path, and the required post-Apply rebuild.
+The v0.1.2 candidate consists of exactly `main.js`, `manifest.json`, and `styles.css`. Packaging restores a hash-verified bundled runtime on first load. Automated checks cover deterministic packaging, relocated loading, runtime tamper refusal, editor snapshot builds, native-write guards, linked targets, round trips, PDF/log state, and CLI behavior. A disposable Linux vault running Obsidian 1.13.7 has exercised package loading, command registration, PDF/log output, the exact Preview → Apply → disk-readback → guarded-finalize path, and the required post-Apply rebuild. The label shortcut has packaged-host coverage; live shortcut delivery in a new native release candidate is verified separately below.
 
 These results do not establish behavior on every Obsidian, operating-system, Node, or TeX version. Hosted BRAT download is established only after the matching GitHub release exists and is installed through BRAT; local packaging or direct installation alone does not prove that hosted path.
 

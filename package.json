@@ -1,6 +1,6 @@
 {
   "name": "obsidian-md2tex-workshop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Local Markdown to LaTeX and PDF compilation with guarded round-trip editing.",
   "main": "src/main.js",

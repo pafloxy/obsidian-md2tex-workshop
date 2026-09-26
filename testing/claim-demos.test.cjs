@@ -16,9 +16,10 @@ const demos = [
   '02-local-tex-pdf.md',
   '03-note-owned-recipe.md',
   '04-guarded-round-trip.md',
+  '05-label-shortcut.md',
 ];
 
-test('the four advertised Markdown claims produce clean real PDFs', async () => {
+test('the five advertised Markdown claims produce clean real PDFs', async () => {
   await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
   const output = await fs.mkdtemp(path.join(root, 'tmp/claim-demos-test-'));
   for (const name of demos) {

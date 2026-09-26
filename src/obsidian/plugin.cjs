@@ -16,6 +16,16 @@ const { documentDirectory } = require('../core/artifacts.cjs');
 const { renderPdf } = require('./pdf-embed.cjs');
 
 const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', autoBuildEnabled: false, buildDebounceMs: 600 });
+const labelMetadata = '<!-- [label{}] -->';
+const labelIdentifierOffset = '<!-- [label{'.length;
+
+/** Insert one supported hidden label comment and place the editor cursor inside its identifier braces. Usage: insertLabelMetadata(editor). */
+function insertLabelMetadata(editor) {
+  const cursor = editor?.getCursor?.();
+  if (!cursor || typeof editor.replaceRange !== 'function' || typeof editor.setCursor !== 'function') throw new Error('Open a Markdown editor before inserting label metadata');
+  editor.replaceRange(labelMetadata, cursor);
+  editor.setCursor({ line: cursor.line, ch: cursor.ch + labelIdentifierOffset });
+}
 
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
 function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
@@ -285,6 +295,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         ['ask-agent-to-fix-compile-error', 'Explain Compilation Assistance Availability', () => { new api.Notice('AI assistance is off. Compilation diagnostics are available in the Workshop.'); }],
       ];
       for (const [id, name, action] of actions) plugin.addCommand({ id, name, callback: () => this.perform(action) });
+      plugin.addCommand({ id: 'insert-label-metadata', name: 'Insert Label Metadata', hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'L' }], editorCallback: editor => insertLabelMetadata(editor) });
       plugin.addRibbonIcon('file-code', 'Open md2tex Workshop', () => this.perform(() => this.openView()));
       plugin.registerEvent(plugin.app.workspace.on('active-leaf-change', leaf => {
         if (leaf?.view instanceof api.MarkdownView && this.isSource(leaf.view.file)) {
@@ -345,4 +356,4 @@ function settingsClass(api, runtime) {
   };
 }
 
-module.exports = { createRuntime, defaults };
+module.exports = { createRuntime, defaults, insertLabelMetadata, labelMetadata };

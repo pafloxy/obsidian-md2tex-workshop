@@ -67,10 +67,21 @@ function host(vaultRoot, saved) {
   class MarkdownView {
     /** Bind exact editor text and one public transaction/save-request history. */
     constructor(file, text) {
-      this.file = file; this.text = text; this.transactions = []; this.undo = [];
+      this.file = file; this.text = text; this.transactions = []; this.undo = []; this.cursor = { line: 0, ch: 0 };
+      const positionToOffset = position => {
+        const lines = this.text.split('\n');
+        return lines.slice(0, position.line).reduce((offset, line) => offset + line.length + 1, 0) + position.ch;
+      };
       this.editor = {
         getValue: () => this.text,
         offsetToPos: offset => { const before = this.text.slice(0, offset); const lines = before.split('\n'); return { line: lines.length - 1, ch: lines.at(-1).length }; },
+        getCursor: () => ({ ...this.cursor }),
+        replaceRange: (inserted, from, to = from) => {
+          const start = positionToOffset(from); const end = positionToOffset(to);
+          this.text = this.text.slice(0, start) + inserted + this.text.slice(end);
+          this.cursor = this.editor.offsetToPos(start + inserted.length);
+        },
+        setCursor: position => { this.cursor = { ...position }; },
         transaction: (change, origin) => { this.undo.push(this.text); this.transactions.push({ change, origin }); this.text = change.changes[0].text; },
       };
     }
@@ -152,6 +163,26 @@ async function until(predicate) {
   while (Date.now() < deadline) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
   throw new Error('Host fixture did not reach its expected state');
 }
+
+test('editor label command inserts the supported comment and targets its identifier', async () => {
+  const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/editor-label-command-'));
+  const value = host(vaultRoot, {});
+  const file = new value.api.TFile('draft.md');
+  const editor = new value.api.MarkdownView(file, '# A note\n\n');
+  editor.cursor = { line: 1, ch: 0 };
+  value.leaves.push({ view: editor });
+  value.app.workspace.active = value.leaves[0];
+  const plugin = new value.api.Plugin();
+  const runtime = createRuntime(plugin, value.api);
+  try {
+    await runtime.start();
+    const command = plugin.commands.get('insert-label-metadata');
+    assert.deepEqual(command.hotkeys, [{ modifiers: ['Mod', 'Shift'], key: 'L' }]);
+    command.editorCallback(editor.editor, editor);
+    assert.equal(editor.text, '# A note\n<!-- [label{}] -->\n');
+    assert.deepEqual(editor.cursor, { line: 1, ch: 12 });
+  } finally { runtime.dispose(); }
+});
 
 test('shared explanation pane requires a current failure and discards stale replies', async () => {
   const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
