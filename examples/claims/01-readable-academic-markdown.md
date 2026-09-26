@@ -24,4 +24,11 @@ The source stays readable in Obsidian while the compiled document receives numbe
 > q_a(x)=(x+a)^2
 > $$
 
-By [ref{def:shifted-coordinate}] and [ref{lem:nonnegative-square}], the quantity in [ref{eq:shifted-square}] is nonnegative. The complete example appears in [ref{sec:readable-demo}].
+$$
+\begin{align}
+q_a(x)&=(x+a)^2\\
+r_a(x)&=q_a(x)+1\label{eq:aligned-shift}
+\end{align}
+$$
+
+By [ref{def:shifted-coordinate}] and [ref{lem:nonnegative-square}], the quantity in [ref{eq:shifted-square}] is nonnegative. The second row of [ref{eq:aligned-shift}] remains visible and editable as Markdown math. The complete example appears in [ref{sec:readable-demo}].

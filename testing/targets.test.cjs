@@ -90,6 +90,25 @@ test('a linked target promotes a complex TeX replacement into a durable TeX-owne
   assert.match(finalTex, /Markdown remains editable beside the slot\./);
 });
 
+test('a linked target recovers complete align TeX as visible native Markdown math', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  assert.equal((await buildLinked(value)).target.status, 'success');
+  const align = '\\begin{align}\na &= b + c \\\\\nd &= e\\label{eq:d}\n\\end{align}\n';
+  await fs.writeFile(value.target, (await fs.readFile(value.target, 'utf8')).replace('The first paragraph is editable.\n', align));
+  const preview = await previewTarget(value);
+  assert.equal(preview.status, 'success', JSON.stringify(preview));
+  assert.ok(preview.changes.some(change => change.method === 'structural-inverse'), JSON.stringify(preview.changes));
+  const candidate = await fs.readFile(preview.artifacts.candidate, 'utf8');
+  assert.ok(candidate.includes(`$$\n${align.trimEnd()}\n$$`));
+  assert.doesNotMatch(candidate, /tex-slot|\{=latex\}/);
+  assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');
+  const rebuilt = await buildLinked(value);
+  assert.equal(rebuilt.target.status, 'success', JSON.stringify(rebuilt));
+  assert.equal((await targetStatus(value)).slotCount, 0);
+  assert.ok((await fs.readFile(value.target, 'utf8')).includes(align));
+});
+
 test('a linked target refuses missing or duplicate TeX-owned pointers before publication', async () => {
   const value = await fixture();
   await setTarget(value);
@@ -118,9 +137,9 @@ test('a linked target refuses foreign and reordered TeX-owned pointers before pu
   await setTarget(value);
   assert.equal((await buildLinked(value)).target.status, 'success');
   const table = '\\begin{table}[h]\n\\centering\n\\caption{First slot}\n\\begin{tabular}{lr}\nName & Value \\\\\nAlpha & 1 \\\\\n\\end{tabular}\n\\end{table}\n';
-  const align = '\\begin{align}\na &= b + c \\\\\nd &= e\n\\end{align}\n';
+  const gather = '\\begin{gather}\na = b + c \\\\\nd = e\n\\end{gather}\n';
   let edited = await fs.readFile(value.target, 'utf8');
-  edited = edited.replace('The first paragraph is editable.\n', table).replace('The control paragraph stays intact.\n', align);
+  edited = edited.replace('The first paragraph is editable.\n', table).replace('The control paragraph stays intact.\n', gather);
   await fs.writeFile(value.target, edited);
   const preview = await previewTarget(value);
   assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');

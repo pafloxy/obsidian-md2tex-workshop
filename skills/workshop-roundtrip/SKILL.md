@@ -29,4 +29,6 @@ description: Review TeX edits for recovery into Markdown using Workshop checkpoi
 
 For a linked preview, an unsupported whole top-level TeX block can become a TeX-owned `<!-- [tex-slot{slot-...}] -->` pointer. Treat that pointer as an integrity handle: its payload remains in owned target state, and missing, duplicate, foreign, or reordered IDs must be left as a refused build rather than repaired by copying TeX into Markdown. An explicit `{=latex}` fence remains the Markdown-owned option.
 
+A complete top-level `align` or `align*` environment is supported native Markdown math rather than an opaque slot. Expect the candidate to wrap the unchanged environment in `$$` delimiters, preserve `&`, `\\`, row-level labels, and numbering semantics exactly, and pass the normal regeneration/build gate. Labels remain invalid in `align*`.
+
 For a disposable exercise, follow [the quickstart](../../examples/quickstart/README.md). For simultaneous changes, expose the conflict before choosing `--prefer`; that option is an explicit reconciliation choice, not an automatic repair.

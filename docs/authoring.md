@@ -2,10 +2,7 @@
 
 The [round-trip editing workflow](roundtrip.md) adds an explicit `{=latex}` pass-through fence. Ordinary language-tagged code fences retain their literal-code meaning. Opaque-island reference resolution is checked in the final compiler log.
 
-This is the tested subset of the standalone CLI, not a change to your live
-Obsidian installation. Markdown remains the drafting source. Existing notes are
-never rewritten. Explicit IDs, rather than title-derived automatic labels, mean
-that editing a title cannot silently change its reference target.
+This is the tested subset of the standalone CLI, not a change to your live Obsidian installation. Markdown remains the drafting source. Existing notes are never rewritten. Explicit IDs, rather than title-derived automatic labels, mean that editing a title cannot silently change its reference target.
 
 ## Working example
 
@@ -29,7 +26,14 @@ The filename is `file_name`. See [ref{lem:identity}] before its declaration.
 > x_1=x_1
 > $$
 
-See [ref{sec:results,lem:identity}] and [ref{eq:identity}].
+$$
+\begin{align}
+x_1+y_1&=z_1\\
+x_1-y_1&=w_1\label{eq:difference-row}
+\end{align}
+$$
+
+See [ref{sec:results,lem:identity}], [ref{eq:identity}], and [ref{eq:difference-row}].
 [todo{check $[x_1,y_1]$ at 50% & retain the context}].
 
 ```text
@@ -37,8 +41,7 @@ See [ref{sec:results,lem:identity}] and [ref{eq:identity}].
 ```
 ````
 
-Build the [uniform drafting fixture](../testing/fixtures/cli/uniform-authoring.md)
-from the project root:
+Build the [uniform drafting fixture](../testing/fixtures/cli/uniform-authoring.md) from the project root:
 
 ```sh
 node scripts/workshop.cjs build testing/fixtures/cli/uniform-authoring.md --out-dir tmp/uniform-authoring
@@ -59,7 +62,7 @@ Put a blank line between adjacent callouts and keep every line inside a callout 
 | Input | Export behavior |
 | --- | --- |
 | Ordinary `%`, `&`, `_`, `#`, braces and other TeX-special prose characters | Escaped as literal text. Existing explicit TeX escapes remain accepted. |
-| `$...$`, `\(...\)`, `$$...$$`, `\[...\]` | Mathematical contents remain raw. Plain display math is unnumbered and cannot contain labels. Use an equation callout for a numbered display, or a raw TeX fence for advanced numbered environments. |
+| `$...$`, `\(...\)`, `$$...$$`, `\[...\]` | Mathematical contents remain raw. Plain display math is unnumbered and cannot contain labels. One complete top-level `align` inside a display preserves independently numbered rows and permits row-level `\label{...}`; `align*` is also supported but remains unnumbered and cannot contain labels. Use an equation callout for several rows sharing one number. |
 | Raw TeX macros and standalone `\begin{...}` blocks | Arguments/environments are protected from Markdown conversion. The selected preamble must supply required definitions. TeX remains trusted, not sandboxed. |
 | Backtick code spans and backtick/tilde fences | Literal characters stay literal; labels/references/callouts inside them are inactive. Code spans normalize newlines to spaces; fences retain line content. No syntax highlighting. |
 | `#` through `######` headings | Section through subparagraph commands. Explicit targets are supported on the first three levels; deeper headings are unnumbered in the default recipe. |
@@ -75,23 +78,19 @@ Put a blank line between adjacent callouts and keep every line inside a callout 
 | `[todo{...}]` | Visible bold annotation with parsed math/formatting inside it. No extra package or `\todo` definition required. |
 | `<!-- ... -->`, `%% ... %%` | Comments excluded from export and declaration checks, with source lines retained. A whole-line label comment in its defined ownership position declares a target. Code/raw TeX regions keep their own literal/comment rules. |
 
-Labels use nonempty literal IDs containing letters, digits, `:`, `.`, `_`, `/`,
-or `-`. The same declaration attaches by position:
+Labels use nonempty literal IDs containing letters, digits, `:`, `.`, `_`, `/`, or `-`. The same declaration attaches by position:
 
 1. A heading label is on its immediately following line, without an intervening blank line.
 2. A callout label is its first nonblank body line, before any prose, math, nested callout or ordinary comment.
 3. A label elsewhere is an error; no label is attached by searching for a nearby construct.
 
-Matching redundant IDs on one heading/callout collapse to one emitted label.
-Different IDs on the same block, or reusing an ID across blocks, are errors.
-Labels on proofs, generic unnumbered callouts, or deep headings are rejected
-instead of referencing the preceding statement's counter. Advanced raw TeX still follows TeX's counter/expansion semantics.
+Matching redundant IDs on one heading/callout collapse to one emitted label. Different IDs on the same block, or reusing an ID across blocks, are errors. Labels on proofs, generic unnumbered callouts, or deep headings are rejected instead of referencing the preceding statement's counter. Advanced raw TeX still follows TeX's counter/expansion semantics.
 
 ## Existing files and round trips
 
-The local structural converter uses this syntax directly, without a frontmatter dialect switch. New structural reverse conversions emit native titles, hidden label comments, and bracket-curly commands. Unchanged checkout blocks retain their exact source bytes. Supported TeX edits are accepted only after exact regeneration; complex TeX remains an explicit raw fence. Ordinary hidden comments that cannot be safely repositioned stop the preview. See [round-trip editing](roundtrip.md).
+The local structural converter uses this syntax directly, without a frontmatter dialect switch. New structural reverse conversions emit native titles, hidden label comments, bracket-curly commands, and complete top-level `align`/`align*` environments inside display-math delimiters. Unchanged checkout blocks retain their exact source bytes. Supported TeX edits are accepted only after exact regeneration; complex TeX remains an explicit raw fence. Ordinary hidden comments that cannot be safely repositioned stop the preview. See [round-trip editing](roundtrip.md).
 
-The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw heading/callout label forms remain accepted as small existing input aliases; the new grammar does not depend on them. Two ambiguous forms deliberately fail: callout pipe labels and labels inside Markdown math. Move their IDs to a leading label line, wrapping numbered math in an equation callout. No files are automatically migrated, and the separately selected external legacy converter does not support this grammar. Old editing checkpoints keep their converter-hash guard and need their original converter or a fresh checkout after explicit source adaptation.
+The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw heading/callout label forms remain accepted as small existing input aliases; the new grammar does not depend on them. Callout pipe labels and labels in ordinary Markdown math deliberately fail. Move a single equation's ID to a leading label line inside an equation callout; row-level labels are supported only inside one complete top-level numbered `align` display. No files are automatically migrated, and the separately selected external legacy converter does not support this grammar. Old editing checkpoints keep their converter-hash guard and need their original converter or a fresh checkout after explicit source adaptation.
 
 ## Deliberate limits and safe failure
 
@@ -125,12 +124,8 @@ The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw hea
 - The body is limited to 4 MiB; parser recursion is bounded. TeX can impose lower
   list/environment nesting limits. Process timeouts do not cover synchronous parsing.
 
-Source, diagnostics, and the previous successful PDF remain available on failure.
-This bounded subset is not full CommonMark, Obsidian, or arbitrary-TeX compatibility.
+Source, diagnostics, and the previous successful PDF remain available on failure. This bounded subset is not full CommonMark, Obsidian, or arbitrary-TeX compatibility.
 
 ## Parser design
 
-A bounded local parser protects TeX, comments and literal code before rendering.
-Changing its grammar requires paired forward and inverse tests. It deliberately
-does not claim complete CommonMark or Obsidian compatibility. See
-[architecture](architecture.md) and [contributing](../CONTRIBUTING.md).
+A bounded local parser protects TeX, comments and literal code before rendering. Changing its grammar requires paired forward and inverse tests. It deliberately does not claim complete CommonMark or Obsidian compatibility. See [architecture](architecture.md) and [contributing](../CONTRIBUTING.md).

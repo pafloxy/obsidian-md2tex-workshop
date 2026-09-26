@@ -4,7 +4,7 @@ These notes are the smallest public demonstrations behind the six claims in the 
 
 | Claim | Demo | What to inspect |
 | --- | --- | --- |
-| Readable academic Markdown | [01-readable-academic-markdown.md](01-readable-academic-markdown.md) | Native headings and callouts become numbered LaTeX objects with working references. |
+| Readable academic Markdown | [01-readable-academic-markdown.md](01-readable-academic-markdown.md) | Native headings, callouts, and top-level `align` math become numbered LaTeX objects with working references. |
 | Local TeX/PDF with retained evidence | [02-local-tex-pdf.md](02-local-tex-pdf.md) | A successful attempt contains generated TeX, PDF, compiler log, source map, and result metadata. |
 | Note-owned document recipe | [03-note-owned-recipe.md](03-note-owned-recipe.md) | YAML selects the preamble, BibTeX resource, and bibliography placement for this note. |
 | Guarded TeX-to-Markdown recovery | [04-guarded-round-trip.md](04-guarded-round-trip.md) | Edit the named prose sentence in linked TeX, preview the exact Markdown candidate, then apply and rebuild. |

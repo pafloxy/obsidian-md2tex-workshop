@@ -27,6 +27,21 @@ function visibleTex(text) {
   }).join('\n');
 }
 
+/** Identify one complete top-level align environment inside display-math delimiters. */
+function topLevelAlign(text) {
+  const visible = visibleTex(text).trim();
+  const opening = visible.match(/^\\begin\{(align\*?)\}/);
+  if (!opening) return null;
+  const stack = [];
+  let outerEnd = -1;
+  for (const token of visible.matchAll(/(?<!\\)\\(begin|end)\{([a-zA-Z*]+)\}/g)) {
+    if (token[1] === 'begin') stack.push(token[2]);
+    else if (stack.pop() !== token[2]) return null;
+    if (!stack.length) { outerEnd = token.index + token[0].length; break; }
+  }
+  return outerEnd === visible.length ? opening[1] : null;
+}
+
 const environments = { theorem: 'theorem', thm: 'theorem', lemma: 'lemma', lem: 'lemma', definition: 'definition', def: 'definition', proposition: 'proposition', prop: 'proposition', corollary: 'corollary', cor: 'corollary', example: 'example', ex: 'example', remark: 'remark', rem: 'remark', note: 'remark', property: 'property', proof: 'proof' };
 const validId = /^[a-zA-Z0-9:._/-]+$/;
 environments.equation = 'equation';
@@ -144,8 +159,9 @@ class DocumentParser {
         if (/\[\^[^\]]+\]/.test(span.value)) this.report('UNSUPPORTED_FOOTNOTE', 'Markdown footnotes are not supported yet; raw TeX footnotes remain available.', span.line);
       }
       if (span.type === 'label') this.report('UNSCOPED_LABEL', 'Place a whole-line label immediately below a heading or at the start of a callout body.', span.line);
-      if (span.type === 'math' && /(?<!\\)\\label\{/.test(visibleTex(span.value))) this.report('LABEL_IN_MATH', 'Move the label outside math: use an [!equation] callout with a leading <!-- [label{eq:id}] --> line, or an explicit raw TeX fence.', span.line);
-      if (span.type === 'math' && /\\begin\{(?:equation|align|alignat|flalign|gather|multline)\}/.test(visibleTex(span.value))) this.report('NUMBERED_ENVIRONMENT_IN_MATH', 'Use an equation callout for one number or a raw TeX fence for independently numbered environments.', span.line);
+      const align = span.type === 'math' && span.display ? topLevelAlign(span.value) : null;
+      if (span.type === 'math' && /(?<!\\)\\label\{/.test(visibleTex(span.value)) && align !== 'align') this.report('LABEL_IN_MATH', 'Move the label outside math, or keep it inside one complete top-level align display where it owns a numbered row.', span.line);
+      if (span.type === 'math' && /\\begin\{(?:equation|align|alignat|flalign|gather|multline)\}/.test(visibleTex(span.value)) && align !== 'align') this.report('NUMBERED_ENVIRONMENT_IN_MATH', 'Use an equation callout for one number; a complete top-level align display is the supported independently numbered form.', span.line);
       if (span.type === 'math' && /\[(?:(?:label|ref|cite|todo)\{|printbibliography\])/.test(visibleTex(span.value))) this.report('DIRECTIVE_IN_MATH', 'Place authoring commands outside math delimiters.', span.line);
       if (span.type === 'raw' || span.type === 'math') this.scanRaw(span.value, span.line);
       else if (span.type === 'reference' || span.type === 'citation') {
@@ -584,6 +600,7 @@ function renderDocument(nodes) {
       if (span.type === 'citation') return `\\cite{${span.value}}`;
       if (span.type === 'math') {
         if (!span.display) return `$${span.value}$`;
+        if (topLevelAlign(span.value)) return span.value.trim();
         const outer = visibleTex(span.value).trim().match(/^\\begin\{(align\*?|alignat\*?|flalign\*?|equation\*?|gather\*?|multline\*?|displaymath)\}/);
         if (outer && visibleTex(span.value).trim().endsWith(`\\end{${outer[1]}}`)) return span.value;
         return `\\[${span.value}\\]`;
@@ -599,7 +616,8 @@ function renderDocument(nodes) {
         const tail = span.type === 'todo' ? 2 : 1;
         return [{ text: wrapper.slice(0, -tail), line: span.line }, ...pieces(span.children), { text: wrapper.slice(-tail), line: span.endLine }];
       }
-      return [{ text: inline([span]), line: span.line, endLine: span.type === 'code' ? span.endLine : undefined }];
+      const alignOffset = span.type === 'math' && span.display && topLevelAlign(span.value) ? newlines(span.value.match(/^\s*/)[0]) : 0;
+      return [{ text: inline([span]), line: span.line + alignOffset, endLine: span.type === 'code' ? span.endLine : undefined }];
     });
   }
   /** Emit an inline block with exact line provenance or an honest source-line range. */

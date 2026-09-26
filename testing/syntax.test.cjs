@@ -46,6 +46,18 @@ test('labels have identical semantics with or without the HTML comment wrapper',
   assert.equal(valid(visible).tex, valid(document).tex);
 });
 
+test('a complete top-level align display is native Markdown math with exact TeX and row labels', () => {
+  const environment = '\\begin{align}\n' +
+    'W_t(\\boldsymbol\\Phi_{t-1},\\mathbf 0) &= C_tW_{t-1}(\\boldsymbol\\Phi_{t-1}),\\\\\n' +
+    'E_t(\\boldsymbol\\Phi_{t-1},\\mathbf 0) &= E_{t-1}(\\boldsymbol\\Phi_{t-1}).\\label{eq:embedding}\n' +
+    '\\end{align}';
+  const result = valid(`$$\n${environment}\n$$\n\nSee [ref{eq:embedding}].\n`);
+  assert.equal(result.tex, `${environment}\n\nSee \\cref{eq:embedding}.\n`);
+  assert.deepEqual(result.document.labels.map(label => label.id), ['eq:embedding']);
+  const mapped = result.lines.find(item => result.tex.split('\n')[item.bodyLine - 1].startsWith('W_t'));
+  assert.equal(mapped.line, 3);
+});
+
 test('command arguments protect code delimiters and keep nested mathematical braces', () => {
   const result = valid('[todo{Check `}` and ``{`}`` with $\\frac{x}{y}$ and $\\{x,y\\}$}].');
   assert.match(result.tex, /\\texttt\{\\\}\}/);
@@ -91,6 +103,8 @@ test('plain math cannot acquire a counter and equation bodies have one explicit 
   const cases = [
     ['$$\n\\label{eq:a}\nx=1\n$$', 'LABEL_IN_MATH'],
     ['$$\\begin{equation}x=1\\end{equation}$$', 'NUMBERED_ENVIRONMENT_IN_MATH'],
+    ['$$\\begin{align*}x&=1\\label{eq:a}\\end{align*}$$', 'LABEL_IN_MATH'],
+    ['$$prefix\\begin{align}x&=1\\end{align}$$', 'NUMBERED_ENVIRONMENT_IN_MATH'],
     ['$[ref{a}]$', 'DIRECTIVE_IN_MATH'],
     ['> [!equation]\n> x=1', 'EQUATION_BODY'],
     ['> [!equation]\n> $$ $$', 'EQUATION_BODY'],
@@ -160,8 +174,25 @@ test('structural rewrites never discard unpositionable Markdown-only comments', 
   assert.throws(() => recover(source, before, before.replace('lemma', 'theorem').replace('Old', 'New')), { code: 'MD_ONLY_CONTENT' });
 });
 
+test('a new numbered align returns as visible native Markdown math', () => {
+  const tex = '\\begin{align}\nx&=1\\\\\ny&=2\\label{eq:y}\n\\end{align}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.equal(result.markdown, '$$\n\\begin{align}\nx&=1\\\\\ny&=2\\label{eq:y}\n\\end{align}\n$$\n\n');
+  assert.equal(render(result.markdown), tex);
+});
+
+test('a complete align-star display round trips natively without acquiring labels or numbers', () => {
+  const tex = '\\begin{align*}\nx&=1\\\\\ny&=2\n\\end{align*}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.equal(result.markdown, '$$\n\\begin{align*}\nx&=1\\\\\ny&=2\n\\end{align*}\n$$\n\n');
+  assert.equal(render(result.markdown), tex);
+  assert.deepEqual(valid(result.markdown).document.labels, []);
+});
+
 test('unsupported TeX math remains exact in a raw island instead of inventing draft syntax', () => {
-  const tex = '\\begin{align}\n\\label{eq:a}\nx&=1\\\\\ny&=2\n\\end{align}\n\n';
+  const tex = '\\begin{gather}\n\\label{eq:a}\nx=1\\\\\ny=2\n\\end{gather}\n\n';
   const result = recover('', '', tex);
   assert.equal(result.method, 'raw-tex');
   assert.equal(render(result.markdown), tex);
