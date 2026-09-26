@@ -4,13 +4,11 @@ This is a **standalone CLI prototype**, not a live Obsidian synchronizer. It add
 
 The practical discipline is: keep Markdown as your usual editing surface, take a checkpoint before editing TeX, and return through a preview. Keep both files saved; pause editing/autosave during apply and reload the note afterward.
 
-The [uniform authoring syntax](authoring.md) participates in the same workflow: heading/callout label comments belong to their enclosing block, new equations recover as `[!equation]` callouts, and references, citations and annotations recover as `[ref{...}]`, `[cite{...}]` and `[todo{...}]`. Unchanged blocks retain their exact Markdown bytes; a simple source edit can preserve formatting and comments. A structural inverse emits the canonical spelling only when it regenerates the edited TeX exactly. Ordinary Markdown-only comments that cannot be safely repositioned still stop recovery. Advanced TeX, including independently numbered `align` rows, remains a raw TeX fence when an exact structural representation is unavailable.
+The [uniform authoring syntax](authoring.md) participates in the same workflow: heading/callout label comments belong to their enclosing block, new equations recover as `[!equation]` callouts, and references, citations and annotations recover as `[ref{...}]`, `[cite{...}]` and `[todo{...}]`. Unchanged blocks retain their exact Markdown bytes; a simple source edit can preserve formatting and comments. A structural inverse emits the canonical spelling only when it regenerates the edited TeX exactly. Ordinary Markdown-only comments that cannot be safely repositioned still stop recovery. Standalone checkpoints preserve advanced TeX, including independently numbered `align` rows, as raw-TeX fences; managed linked targets can instead use the opaque [TeX-owned slot](linked-tex.md#tex-owned-slots) representation.
 
 Checkpoint hashes deliberately reject a converter changed since checkout. This syntax update does not silently upgrade old sessions: finish them with their original converter or adapt a copy of the source and create a fresh checkpoint. There is no automatic note migration or live renderer change.
 
-For a stable TeX filename shared with Obsidian, use the [linked-target workflow](linked-tex.md).
-It retains these guards and adds target ownership/external-edit checks. Obsidian
-can open its reverse candidate; editor-aware apply remains a separate milestone.
+For a stable TeX filename shared with Obsidian, use the [linked-target workflow](linked-tex.md). It retains these guards and adds target ownership/external-edit checks. Obsidian can open its reverse candidate; editor-aware apply remains a separate milestone.
 
 ## Normal workflow
 
@@ -55,23 +53,11 @@ Run all commands from the `obsidian-md2tex-workshop` project root. Replace place
 
 ### YAML recipes and bibliography placement
 
-Ordinary builds resolve YAML before controls and bundled defaults. Preview builds
-use a separate internal route that replays the checkpoint's frozen preamble,
-bibliography and support copies. Changing a live resource file does not change
-that preview. Changing recipe metadata in the saved Markdown produces
-`RECIPE_CHANGED`; reconcile the recipe and create a fresh checkpoint. Unrelated
-frontmatter remains eligible for preservation.
+Ordinary builds resolve YAML before controls and bundled defaults. Preview builds use a separate internal route that replays the checkpoint's frozen preamble, bibliography and support copies. Changing a live resource file does not change that preview. Changing recipe metadata in the saved Markdown produces `RECIPE_CHANGED`; reconcile the recipe and create a fresh checkpoint. Unrelated frontmatter remains eligible for preservation.
 
-An explicit `[printbibliography]` corresponds to `\printbibliography` inside a
-marked body block. It can move between body blocks while keeping marker order;
-the inverse restores the Markdown directive and verifies exact TeX regeneration.
-Changing between automatic suffix placement and explicit body placement changes
-the wrapper contract: do that in Markdown and start a fresh checkpoint. A preview
-that would change this boundary fails its wrapper/regeneration checks rather
-than silently accepting a different document.
+An explicit `[printbibliography]` corresponds to `\printbibliography` inside a marked body block. It can move between body blocks while keeping marker order; the inverse restores the Markdown directive and verifies exact TeX regeneration. Changing between automatic suffix placement and explicit body placement changes the wrapper contract: do that in Markdown and start a fresh checkpoint. A preview that would change this boundary fails its wrapper/regeneration checks rather than silently accepting a different document.
 
-The [bibliography exercise](../examples/bibliography/README.md) demonstrates the
-YAML, citation, printing and recovery sequence with synthetic resources.
+The [bibliography exercise](../examples/bibliography/README.md) demonstrates the YAML, citation, printing and recovery sequence with synthetic resources.
 
 Completion: your updated note is the applied candidate, its backup exists, and it can begin another verified checkpoint cycle. No source is deleted as part of the workflow.
 

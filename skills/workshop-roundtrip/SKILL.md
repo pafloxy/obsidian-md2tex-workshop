@@ -27,4 +27,6 @@ description: Review TeX edits for recovery into Markdown using Workshop checkpoi
    cycle: confirm the next build includes the recovered edit and preserves
    labels, code and raw islands. If save, readback or linked-state finalization fails after the editor changes, inspect the editor, disk file and backup; never force an automatic rollback over later edits.
 
+For a linked preview, an unsupported whole top-level TeX block can become a TeX-owned `<!-- [tex-slot{slot-...}] -->` pointer. Treat that pointer as an integrity handle: its payload remains in owned target state, and missing, duplicate, foreign, or reordered IDs must be left as a refused build rather than repaired by copying TeX into Markdown. An explicit `{=latex}` fence remains the Markdown-owned option.
+
 For a disposable exercise, follow [the quickstart](../../examples/quickstart/README.md). For simultaneous changes, expose the conflict before choosing `--prefer`; that option is an explicit reconciliation choice, not an automatic repair.

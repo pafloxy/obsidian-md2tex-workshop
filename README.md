@@ -12,7 +12,7 @@ Markdown note → generated TeX → PDF
 
 Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
 
-## Five claims, five demos
+## Six claims, six demos
 
 | Main claim | What the plugin does | Runnable Markdown demo |
 | --- | --- | --- |
@@ -21,8 +21,9 @@ Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and n
 | **Let each note own its document recipe.** | YAML can select the preamble, engine, bibliography backend, bibliography files, and explicit bibliography position, with recorded setting origins. | [Note-owned recipe](examples/claims/03-note-owned-recipe.md) |
 | **Bring selected TeX edits back without silently overwriting Markdown.** | A persistent linked TeX target uses anchored checkpoints, a read-only Preview, a separate Apply gesture, backups, exact freshness checks, conflict refusal, native editor save, and disk readback before acknowledgement. | [Guarded round trip](examples/claims/04-guarded-round-trip.md) |
 | **Add supported labels without leaving the Markdown editor.** | A command and bundled `Mod+Shift+L` hotkey insert a hidden label comment and place the caret inside the identifier braces. | [Label shortcut](examples/claims/05-label-shortcut.md) |
+| **Keep hand-tuned TeX alive beside editable Markdown.** | A linked target can retain an exact TeX-owned table, figure, or alignment block behind one stable Markdown pointer; missing, duplicated, foreign, or reordered pointers stop before publication. | [TeX-owned slot](examples/claims/06-tex-owned-slot.md) |
 
-The [claim-demo index](examples/claims/README.md) gives repository-root commands for building all five notes.
+The [claim-demo index](examples/claims/README.md) gives repository-root commands for building the six notes.
 
 ## Install with BRAT
 
@@ -66,6 +67,8 @@ Use [04-guarded-round-trip.md](examples/claims/04-guarded-round-trip.md) for the
 4. Return to Obsidian and choose **Preview TeX changes**. Workshop validates the checkpoint, compiles the proposed candidate, and opens a native review tab showing the current and proposed Markdown. Preview never writes the note.
 5. Inspect the complete candidate and choose **Apply to Markdown** only if it is correct. With one open Markdown view, Workshop uses one undoable editor transaction, requests a native save, reads the persisted bytes back, and acknowledges the linked target only after the exact candidate hash matches. A closed note uses a guarded vault write; multiple views of the same note are refused.
 6. Build once more from Markdown. This confirms the recovered edit and creates the checkpoint for the next TeX editing round.
+
+For a complex top-level TeX block that cannot be translated safely, a linked preview can promote it to `<!-- [tex-slot{slot-...}] -->`. The pointer remains in Markdown while the exact TeX payload is held in the owned target state and regenerated on the next build. Do not delete, copy, invent, or move those pointers: linked builds refuse missing, duplicate, foreign, and reordered IDs before replacing the target. Explicit `{=latex}` fences remain the Markdown-owned alternative when you want the TeX visible and editable in Markdown.
 
 The round trip intentionally handles a bounded TeX subset, not arbitrary collaborator-written LaTeX. Concurrent edits to the same anchored region produce `EDIT_CONFLICT`; changed markers, wrappers, recipes, dependencies, stale previews, and ambiguous inverses are refused with both sources preserved. See [linked targets](docs/linked-tex.md) and [round-trip guarantees](docs/roundtrip.md).
 

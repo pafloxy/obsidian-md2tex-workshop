@@ -73,6 +73,14 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
    old target remains claimed; this version does not provide automatic re-adoption
    or history deletion. Use a new target for a new binding.
 
+## TeX-owned slots
+
+When an edited whole marked top-level block cannot recover as ordinary Markdown, linked preview promotes it to a stable pointer such as `<!-- [tex-slot{slot-b0003}] -->`. The matching TeX bytes stay in the target's owned state and are emitted unchanged whenever the Markdown note is rebuilt. This is useful for a hand-tuned `table`, `figure`, or multi-row `align` block while the surrounding Markdown remains ordinary editable text.
+
+The pointer is an integrity handle, not an editable copy of TeX. Do not delete it, duplicate it, invent a new ID, or move it relative to another slot. A linked build validates the complete ordered pointer set before target publication and refuses `TEX_SLOT_MISSING`, `DUPLICATE_TEX_SLOT`, `UNKNOWN_TEX_SLOT`, or `TEX_SLOT_REORDERED` with the existing target left intact. After a TeX-side slot edit, use Preview and Apply as usual; Apply updates the owned payload only after the normal candidate, freshness, backup, and readback checks pass.
+
+Version 1 creates a slot only by replacing one existing marked top-level Markdown block during a linked TeX preview. It does not adopt an arbitrary existing TeX file, infer a new Markdown table or figure editor, permit a slot outside the managed target, or make the payload visible in ordinary Markdown. Use an explicit `{=latex}` fence instead when Markdown should continue to own the raw TeX text.
+
 ## Shared files and publication rules
 
 ```text

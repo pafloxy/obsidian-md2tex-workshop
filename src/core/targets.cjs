@@ -12,6 +12,7 @@ const { randomUUID } = require('node:crypto');
 const { sourceHash: hash } = require('./protocol.cjs');
 const { build } = require('./workshop.cjs');
 const { checkout, sync, prepareApply, verifyPreparedApply, apply } = require('./roundtrip.cjs');
+const { normalizeSlots } = require('./tex-slots.cjs');
 
 /** Raise a stable linked-target diagnostic, separate from TeX compilation errors. */
 function fail(code, message) { throw Object.assign(new Error(message), { code }); }
@@ -66,6 +67,8 @@ async function load(input) {
   const state = JSON.parse(file.bytes);
   if (state.schemaVersion !== 'workshop-target.v1' || state.id !== binding.id || typeof state.source !== 'string' || path.resolve(path.dirname(target), state.source) !== input
     || !Number.isSafeInteger(state.generation) || state.generation < 0 || (state.texHash !== null && !/^[a-f0-9]{64}$/.test(state.texHash))) fail('TARGET_OWNER_MISMATCH', 'The target ownership record does not match this Markdown note');
+  try { state.slots = normalizeSlots(state.slots); }
+  catch (error) { fail('TARGET_OWNER_MISMATCH', error.message); }
   if (state.session && (path.isAbsolute(state.session) || path.relative(directory, path.resolve(directory, state.session)).startsWith('..'))) fail('INVALID_TARGET_LINK', 'Checkpoint is outside the owned target directory');
   return { input, bindingPath, binding, bindingHash: bindingFile.sha256, target, directory, statePath, state, stateHash: file.sha256 };
 }
@@ -78,7 +81,7 @@ async function targetStatus({ input }) {
   return { schemaVersion: 'workshop-target-result.v1', command: 'tex-target-status', status: 'success', linked: true,
     source: link.input, target: link.target, generation: link.state.generation, state: link.statePath,
     session: link.state.session ? path.resolve(link.directory, link.state.session) : null,
-    externallyEdited: (current?.sha256 || null) !== link.state.texHash, published: Boolean(link.state.texHash), sha256: current?.sha256 || null };
+    externallyEdited: (current?.sha256 || null) !== link.state.texHash, published: Boolean(link.state.texHash), slotCount: link.state.slots.length, sha256: current?.sha256 || null };
 }
 
 /** Claim a new whole-file target; existing files/links require explicit separate reconciliation. */
@@ -96,7 +99,7 @@ async function setTarget({ input, target }) {
   const id = randomUUID(); const directory = target + '.workshop';
   try { await fs.mkdir(directory); }
   catch (error) { if (error.code === 'EEXIST') fail('TARGET_ALREADY_CLAIMED', 'This target has an ownership/history directory. Inspect it instead of replacing it'); throw error; }
-  await create(path.join(directory, 'state.json'), JSON.stringify({ schemaVersion: 'workshop-target.v1', id, source: path.relative(path.dirname(target), input), generation: 0, texHash: null, session: null }) + '\n');
+  await create(path.join(directory, 'state.json'), JSON.stringify({ schemaVersion: 'workshop-target.v1', id, source: path.relative(path.dirname(target), input), generation: 0, texHash: null, session: null, slots: [] }) + '\n');
   await create(input + '.workshop.json', JSON.stringify({ schemaVersion: 'workshop-link.v1', id, target: path.relative(path.dirname(input), target) }, null, 2) + '\n');
   return targetStatus({ input });
 }
@@ -129,7 +132,7 @@ async function publish(link, built, options) {
     if ((original?.sha256 || null) !== link.state.texHash) fail('TARGET_EDITED', 'The linked TeX has external edits. Preview its round trip before rebuilding this target');
     const key = hash(JSON.stringify([built.source, built.converter, built.profile, built.dependencies]));
     if (link.state.buildKey === key && original) return { status: 'success', outcome: 'unchanged', target: link.target, generation: link.state.generation };
-    const checkpoint = await checkout({ built, outDir: link.directory });
+    const checkpoint = await checkout({ built, outDir: link.directory, texSlots: link.state.slots });
     if (checkpoint.status !== 'success') fail('TARGET_CHECKPOINT_FAILED', checkpoint.diagnostics.map(item => item.message).join('; '));
     const directory = path.dirname(checkpoint.artifacts.session);
     const candidate = await read(checkpoint.artifacts.tex);
@@ -159,7 +162,7 @@ async function publish(link, built, options) {
     if (original) { await fs.chmod(pending, original.mode & 0o777); await fs.rename(pending, link.target); }
     else { await fs.link(pending, link.target); await fs.unlink(pending); }
     if ((await read(link.target)).sha256 !== candidate.sha256) fail('TARGET_READBACK_CHANGED', 'Target changed after replacement; inspect retained backup, no rollback was attempted');
-    await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: candidate.sha256, sourceHash: built.source.sha256,
+    await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: candidate.sha256, sourceHash: built.source.sha256, slots: link.state.slots,
       buildKey: key, session: path.relative(link.directory, checkpoint.artifacts.session) });
     return { status: 'success', outcome: 'published', target: link.target, generation: link.state.generation + 1, session: checkpoint.artifacts.session,
       backup: original ? path.join(directory, 'previous-target.tex') : null };
@@ -170,7 +173,7 @@ async function publish(link, built, options) {
 async function buildLinked(options) {
   let link; let linkError;
   try { link = await load(options.input); } catch (error) { linkError = error; }
-  const built = await build(options);
+  const built = await build(link ? { ...options, texSlots: link.state.slots, expectedSlotIds: link.state.slots.map(slot => slot.id) } : options);
   if (built.status !== 'success') return built;
   try {
     if (linkError) throw linkError;
@@ -192,7 +195,7 @@ async function previewTarget(options) {
   if (!link?.state.session) fail('TARGET_NOT_PUBLISHED', 'Build the linked note before requesting a reverse preview');
   return locked(link, async () => {
     await fresh(link);
-    return sync({ ...options, input: path.resolve(link.directory, link.state.session), texPath: link.target, expectedSource: link.input });
+    return sync({ ...options, input: path.resolve(link.directory, link.state.session), texPath: link.target, expectedSource: link.input, allowTexSlots: true });
   });
 }
 
@@ -204,9 +207,10 @@ async function prepareTargetApply(options) {
     await fresh(link);
     const preview = JSON.parse((await read(path.resolve(options.preview))).bytes);
     if (preview.texPath !== link.target || preview.session !== path.resolve(link.directory, link.state.session)) fail('WRONG_TARGET_PREVIEW', 'This preview belongs to a different target generation');
+    const slots = normalizeSlots(preview.slots);
     const prepared = await prepareApply({ input: link.input, preview: options.preview, context: {
       schemaVersion: 'workshop-target-apply.v1', target: link.target, state: link.statePath,
-      bindingHash: link.bindingHash, stateHash: link.stateHash, generation: link.state.generation,
+      bindingHash: link.bindingHash, stateHash: link.stateHash, generation: link.state.generation, slots,
     } });
     return { schemaVersion: 'workshop-target-result.v1', command: 'tex-target-apply-prepare', status: 'success', outcome: 'ready',
       source: link.input, target: link.target, sourceHash: prepared.source.sha256, candidateHash: prepared.candidate.sha256, texHash: prepared.tex.sha256,
@@ -225,7 +229,7 @@ async function finalizeTargetApply(options) {
     if (context?.schemaVersion !== 'workshop-target-apply.v1' || context.target !== link.target || context.state !== link.statePath
       || context.bindingHash !== link.bindingHash || context.stateHash !== link.stateHash || context.generation !== link.state.generation) fail('TARGET_STATE_CHANGED', 'The linked target changed after preparation; keep the Markdown backup and request a fresh preview');
     if ((await read(link.target))?.sha256 !== prepared.tex.sha256) fail('TARGET_EDITED', 'TeX changed after Markdown was saved; keep both files and request a fresh preview');
-    await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: prepared.tex.sha256, buildKey: null });
+    await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: prepared.tex.sha256, buildKey: null, slots: normalizeSlots(context.slots) });
     return { schemaVersion: 'workshop-target-result.v1', command: 'tex-target-apply-finalize', status: 'success', outcome: 'applied',
       source: link.input, target: link.target, generation: link.state.generation + 1, sourceHash: prepared.candidate.sha256, texHash: prepared.tex.sha256,
       artifacts: { permit: prepared.permit, candidate: prepared.candidate.path, backup: prepared.artifacts.backup, updated: link.input } };
@@ -243,7 +247,7 @@ async function applyTarget(options) {
     const applied = await apply(options);
     if (applied.status === 'success') {
       if ((await read(link.target))?.sha256 !== preview.texHash) fail('TARGET_EDITED', 'TeX changed after Markdown apply; inspect both sources and the retained backup');
-      await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: preview.texHash, buildKey: null });
+      await stateWrite(link.statePath, { ...link.state, generation: link.state.generation + 1, texHash: preview.texHash, buildKey: null, slots: normalizeSlots(preview.slots) });
     }
     return applied;
   });

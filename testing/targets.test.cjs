@@ -67,6 +67,79 @@ test('a fixed TeX path evolves with backups and completes TeX to Markdown to TeX
   await fs.writeFile(path.join(value.directory, 'validation.json'), JSON.stringify({ first, second, blocked, preview, applied, continued }, null, 2) + '\n');
 });
 
+test('a linked target promotes a complex TeX replacement into a durable TeX-owned slot', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  const first = await buildLinked(value);
+  assert.equal(first.target.status, 'success', JSON.stringify(first));
+  const table = '\\begin{table}[h]\n\\centering\n\\caption{A TeX-owned table}\n\\begin{tabular}{lr}\nName & Value \\\\\nAlpha & 1 \\\\\n\\end{tabular}\n\\end{table}\n';
+  const edited = (await fs.readFile(value.target, 'utf8')).replace('The first paragraph is editable.\n', table);
+  await fs.writeFile(value.target, edited);
+  const preview = await previewTarget(value);
+  assert.equal(preview.status, 'success', JSON.stringify(preview));
+  const candidate = await fs.readFile(preview.artifacts.candidate, 'utf8');
+  assert.match(candidate, /<!-- \[tex-slot\{slot-b\d{4}\}\] -->/);
+  assert.doesNotMatch(candidate, /\{=latex\}/);
+  const applied = await applyTarget({ ...value, preview: preview.artifacts.report });
+  assert.equal(applied.status, 'success', JSON.stringify(applied));
+  await fs.appendFile(value.input, '\nMarkdown remains editable beside the slot.\n');
+  const rebuilt = await buildLinked(value);
+  assert.equal(rebuilt.target.status, 'success', JSON.stringify(rebuilt));
+  const finalTex = await fs.readFile(value.target, 'utf8');
+  assert.ok(finalTex.includes(table));
+  assert.match(finalTex, /Markdown remains editable beside the slot\./);
+});
+
+test('a linked target refuses missing or duplicate TeX-owned pointers before publication', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  assert.equal((await buildLinked(value)).target.status, 'success');
+  const table = '\\begin{table}[h]\n\\centering\n\\caption{Safety table}\n\\begin{tabular}{lr}\nName & Value \\\\\nAlpha & 1 \\\\\n\\end{tabular}\n\\end{table}\n';
+  await fs.writeFile(value.target, (await fs.readFile(value.target, 'utf8')).replace('The first paragraph is editable.\n', table));
+  const preview = await previewTarget(value);
+  assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');
+  const source = await fs.readFile(value.input, 'utf8');
+  const targetBeforeRefusal = await fs.readFile(value.target, 'utf8');
+  const pointer = source.match(/<!-- \[tex-slot\{slot-b\d{4}\}\] -->/)[0];
+  await fs.writeFile(value.input, source.replace(pointer + '\n\n', ''));
+  const missing = await buildLinked(value);
+  assert.equal(missing.status, 'error', JSON.stringify(missing));
+  assert.ok(missing.diagnostics.some(item => item.code === 'TEX_SLOT_MISSING'), JSON.stringify(missing));
+  assert.equal(await fs.readFile(value.target, 'utf8'), targetBeforeRefusal);
+  await fs.writeFile(value.input, source.replace(pointer, pointer + '\n\n' + pointer));
+  const duplicate = await buildLinked(value);
+  assert.equal(duplicate.status, 'error', JSON.stringify(duplicate));
+  assert.ok(duplicate.diagnostics.some(item => item.code === 'DUPLICATE_TEX_SLOT'), JSON.stringify(duplicate));
+  assert.equal(await fs.readFile(value.target, 'utf8'), targetBeforeRefusal);
+});
+
+test('a linked target refuses foreign and reordered TeX-owned pointers before publication', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  assert.equal((await buildLinked(value)).target.status, 'success');
+  const table = '\\begin{table}[h]\n\\centering\n\\caption{First slot}\n\\begin{tabular}{lr}\nName & Value \\\\\nAlpha & 1 \\\\\n\\end{tabular}\n\\end{table}\n';
+  const align = '\\begin{align}\na &= b + c \\\\\nd &= e\n\\end{align}\n';
+  let edited = await fs.readFile(value.target, 'utf8');
+  edited = edited.replace('The first paragraph is editable.\n', table).replace('The control paragraph stays intact.\n', align);
+  await fs.writeFile(value.target, edited);
+  const preview = await previewTarget(value);
+  assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');
+  const source = await fs.readFile(value.input, 'utf8');
+  const targetBeforeRefusal = await fs.readFile(value.target, 'utf8');
+  const pointers = [...source.matchAll(/<!-- \[tex-slot\{(slot-b\d{4})\}\] -->/g)].map(match => match[0]);
+  assert.equal(pointers.length, 2);
+  await fs.writeFile(value.input, source.replace(pointers[0], '<!-- [tex-slot{slot-b9999}] -->'));
+  const foreign = await buildLinked(value);
+  assert.equal(foreign.status, 'error', JSON.stringify(foreign));
+  assert.ok(foreign.diagnostics.some(item => item.code === 'UNKNOWN_TEX_SLOT'), JSON.stringify(foreign));
+  assert.equal(await fs.readFile(value.target, 'utf8'), targetBeforeRefusal);
+  await fs.writeFile(value.input, source.replace(pointers[0], '__FIRST__').replace(pointers[1], pointers[0]).replace('__FIRST__', pointers[1]));
+  const reordered = await buildLinked(value);
+  assert.equal(reordered.status, 'error', JSON.stringify(reordered));
+  assert.ok(reordered.diagnostics.some(item => item.code === 'TEX_SLOT_REORDERED'), JSON.stringify(reordered));
+  assert.equal(await fs.readFile(value.target, 'utf8'), targetBeforeRefusal);
+});
+
 test('a host writer can commit one prepared candidate before linked state is finalized', async () => {
   const value = await fixture();
   await setTarget(value);

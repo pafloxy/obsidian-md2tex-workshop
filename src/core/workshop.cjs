@@ -116,7 +116,7 @@ async function runBuild(options, frozenRecipe = null) {
     let body;
     let document;
     if (config.converterMode === 'structural') {
-      const conversion = convertMarkdown(snapshot, input);
+      const conversion = convertMarkdown(snapshot, input, { texSlots: options.texSlots, expectedSlotIds: options.expectedSlotIds });
       document = conversion.document;
       body = conversion.tex;
       sourceLines = conversion.lines;

@@ -14,9 +14,13 @@ const { convertMarkdown } = require('./markdown.cjs');
 const { recover } = require('./reverse.cjs');
 const { reconcile } = require('./reconcile.cjs');
 const { envelope } = require('./tex-envelope.cjs');
+const { createSlot, normalizeSlots, parseSlotPointer, slotPointer } = require('./tex-slots.cjs');
 
 /** Identify exact bytes, not a whitespace-normalized approximation. */
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
+
+/** Bind a checkpoint to every source module that controls structural TeX emission. */
+async function converterHash() { return hash(Buffer.concat([await fs.readFile(path.join(__dirname, 'markdown.cjs')), await fs.readFile(path.join(__dirname, 'tex-slots.cjs'))])); }
 
 /** Format Europe/Paris wall time with the project's DDMMYYHHMM convention. */
 function timestamp() {
@@ -81,7 +85,7 @@ async function validateApplyPreview(options) {
   const candidate = await readText(candidatePath, 4 * 1024 * 1024);
   const texPath = path.resolve(preview.texPath || path.join(loaded.directory, 'main.tex'));
   if (hash(source) !== preview.source.sha256 || hash(candidate) !== preview.candidateHash || loaded.sessionHash !== preview.sessionHash || hash(await readText(texPath)) !== preview.texHash) fail('STALE_PREVIEW', 'Markdown, TeX, candidate, or checkpoint changed since preview; rerun tex-sync before applying.');
-  const converted = convertMarkdown(parseSnapshot(candidate), sourcePath);
+  const converted = convertMarkdown(parseSnapshot(candidate), sourcePath, { texSlots: preview.slots, expectedSlotIds: preview.slots?.map(slot => slot.id) });
   if (hash(converted.tex + '\n') !== preview.expectedBodyHash || converted.diagnostics.some(item => item.severity === 'error')) fail('STALE_PREVIEW', 'The candidate no longer regenerates the validated TeX.');
   return { reportPath, preview, loaded, sourcePath, sourceIdentity, source, candidatePath, candidate, texPath };
 }
@@ -250,7 +254,8 @@ async function checkout(options) {
     result.build = built;
     if (built.status !== 'success') fail('CHECKPOINT_BUILD_FAILED', 'The Markdown must build successfully before a checkpoint can be created; see build.diagnostics.');
     const source = await readText(built.artifacts.source);
-    const converted = convertMarkdown(parseSnapshot(source), built.source.path);
+    const slots = normalizeSlots(options.texSlots);
+    const converted = convertMarkdown(parseSnapshot(source), built.source.path, { texSlots: slots, expectedSlotIds: slots.map(slot => slot.id) });
     const body = await readText(built.artifacts.body);
     const tex = await readText(built.artifacts.tex);
     checkResources(tex, built.dependencies);
@@ -281,7 +286,7 @@ async function checkout(options) {
       await fs.writeFile(path.join(directory, dependency.name), bytes, { flag: 'wx' });
       files.push({ name: `dependencies/${dependency.name}`, editableName: dependency.name, kind: dependency.kind, sha256: hash(bytes) });
     }
-    const baseline = { schemaVersion: 'workshop-checkpoint.v1', id, sourcePath: built.source.path, source, sourceHash: hash(source), converterHash: built.converter.sha256,
+    const baseline = { schemaVersion: 'workshop-checkpoint.v1', id, sourcePath: built.source.path, source, sourceHash: hash(source), converterHash: await converterHash(), slots,
       prefix: tex.slice(0, bodyStart), suffix: tex.slice(bodyStart + body.length), mdPrefix: source.slice(0, blocks[0].start), blocks, files,
       recipe: { engine: built.profile.engine, bibliography: built.profile.bibliographyMode } };
     const baselineText = JSON.stringify(baseline, null, 2) + '\n';
@@ -305,7 +310,8 @@ async function loadSession(filename) {
   if (hash(baselineText) !== session.baselineHash) fail('BASELINE_CHANGED', 'Checkpoint baseline changed; restore it or create a fresh checkpoint.');
   const baseline = JSON.parse(baselineText);
   if (baseline.id !== session.id || baseline.schemaVersion !== 'workshop-checkpoint.v1' || hash(baseline.source) !== baseline.sourceHash) fail('INVALID_SESSION', 'Inconsistent checkpoint metadata.');
-  if (hash(await fs.readFile(path.join(__dirname, 'markdown.cjs'))) !== baseline.converterHash) fail('CONVERTER_CHANGED', 'The converter changed since checkout; use the checkpoint converter version or create a fresh checkpoint.');
+  if (await converterHash() !== baseline.converterHash) fail('CONVERTER_CHANGED', 'The converter changed since checkout; use the checkpoint converter version or create a fresh checkpoint.');
+  normalizeSlots(baseline.slots);
   for (const file of baseline.files) {
     if (!/^(?:dependencies\/)?[a-zA-Z0-9_. -]+$/.test(file.name) || file.name.includes('..')) fail('INVALID_SESSION', 'Unsafe checkpoint dependency name.');
     if (hash(await fs.readFile(path.join(directory, '_checkpoint', file.name))) !== file.sha256) fail('DEPENDENCY_CHANGED', `Frozen dependency changed: ${file.name}`);
@@ -353,15 +359,30 @@ async function sync(options) {
     checkResources(tex, baseline.files.filter(file => file.editableName).map(file => ({ name: file.editableName })), baseline.id);
     const edited = editedBlocks(baseline, tex);
     result.changes = [];
+    const nextSlots = new Map(normalizeSlots(baseline.slots).map(slot => [slot.id, slot]));
     const recovered = baseline.blocks.map((block, index) => {
+      const existingSlotId = parseSlotPointer(block.source);
+      if (existingSlotId) {
+        const slot = createSlot(existingSlotId, edited[index]);
+        nextSlots.set(slot.id, slot);
+        result.changes.push({ block: block.id, method: 'tex-slot-update', slot: slot.id });
+        return { markdown: block.source, tex: edited[index], method: 'tex-slot-update' };
+      }
       const recovered = recover(block.source, block.tex, edited[index]);
+      if (options.allowTexSlots && recovered.method === 'raw-tex') {
+        const slot = createSlot(`slot-${block.id}`, edited[index]);
+        nextSlots.set(slot.id, slot);
+        result.changes.push({ block: block.id, method: 'tex-slot-create', slot: slot.id });
+        return { markdown: `${slotPointer(slot.id)}\n\n`, tex: edited[index], method: 'tex-slot-create' };
+      }
       result.changes.push({ block: block.id, method: recovered.method });
       return { ...recovered, tex: edited[index] };
     });
     const merged = reconcile(baseline, current, recovered, options.prefer);
     result.diagnostics.push(...merged.warnings);
     const candidate = merged.markdown;
-    const converted = convertMarkdown(parseSnapshot(candidate), baseline.sourcePath);
+    const slots = [...nextSlots.values()];
+    const converted = convertMarkdown(parseSnapshot(candidate), baseline.sourcePath, { texSlots: slots, expectedSlotIds: slots.map(slot => slot.id) });
     if (converted.tex + '\n' !== merged.tex) fail('ROUNDTRIP_MISMATCH', 'The candidate does not regenerate the expected merged TeX exactly; no Markdown was replaced.');
     result.artifacts.candidate = path.join(preview, 'candidate.md');
     await fs.writeFile(result.artifacts.candidate, candidate, { flag: 'wx' });
@@ -372,11 +393,12 @@ async function sync(options) {
     result.candidateHash = hash(candidate);
     result.sessionHash = loaded.sessionHash;
     result.expectedBodyHash = hash(merged.tex);
+    result.slots = slots;
     result.diagnostics.push(...result.changes.filter(change => change.method === 'raw-tex').map(change => ({ severity: 'warning', code: 'RAW_TEX_PRESERVED', message: `${change.block} remains explicit raw TeX inside Markdown; its bytes were verified, not translated into ordinary Markdown.` })));
     const dependencies = baseline.files.filter(file => file.kind);
     const bib = dependencies.filter(file => file.kind === 'bibliography').map(file => path.join(directory, '_checkpoint', file.name));
     const support = dependencies.filter(file => file.kind === 'support').map(file => path.join(directory, '_checkpoint', file.name));
-    result.build = await buildFrozen({ input: result.artifacts.candidate, outDir: path.join(preview, 'build'), timeoutMs: options.timeoutMs, latexmk: options.latexmk, signal: options.signal, processOptions: options.processOptions },
+    result.build = await buildFrozen({ input: result.artifacts.candidate, outDir: path.join(preview, 'build'), timeoutMs: options.timeoutMs, latexmk: options.latexmk, signal: options.signal, processOptions: options.processOptions, texSlots: slots, expectedSlotIds: slots.map(slot => slot.id) },
       { preamble: path.join(directory, '_checkpoint/preamble.tex'), ...baseline.recipe, bib, support });
     if (result.build.status !== 'success') fail('CANDIDATE_BUILD_FAILED', 'Candidate is preserved but cannot be applied: inspect build.diagnostics.');
     await loadSession(loaded.sessionPath);

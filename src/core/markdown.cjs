@@ -3,6 +3,7 @@
  * Example: convertMarkdown({ body: '# Draft\n\n50% of $x_1$.', bodyStartLine: 1 }, 'draft.md');
  * Pure conversion: no filesystem, TeX execution, vault lookup, or source mutation.
  */
+const { parseSlotPointer, slotMap } = require('./tex-slots.cjs');
 
 /** Escape literal prose/code, never raw TeX or mathematical spans. */
 function escapeText(text) {
@@ -33,7 +34,10 @@ environments.equation = 'equation';
 /** Parse protected spans before interpreting Markdown punctuation. */
 class DocumentParser {
   /** Keep diagnostics and declarations local to one immutable source snapshot. */
-  constructor(filename) { this.filename = filename; this.diagnostics = []; this.labels = []; this.references = []; this.citations = []; this.bibliographies = []; }
+  constructor(filename, options = {}) {
+    this.filename = filename; this.diagnostics = []; this.labels = []; this.references = []; this.citations = []; this.bibliographies = [];
+    this.slots = slotMap(options.texSlots); this.expectedSlotIds = options.expectedSlotIds == null ? null : [...options.expectedSlotIds]; this.seenSlotIds = [];
+  }
 
   /** Attach an actionable diagnostic to an original Markdown line. */
   report(code, message, line, severity = 'error') {
@@ -165,6 +169,13 @@ class DocumentParser {
       if (!validId.test(ref.id) || !declared.has(ref.id)) {
         const deferred = this.hasOpaqueTex && validId.test(ref.id);
         this.report(deferred ? 'REFERENCE_DEFERRED_TO_TEX' : 'UNRESOLVED_REFERENCE', deferred ? `Raw TeX may declare ${ref.id}; the final compiler log must resolve this reference.` : `No declared target for ${ref.id || '(empty reference)'}.`, ref.line, deferred ? 'warning' : 'error');
+      }
+    }
+    if (this.expectedSlotIds) {
+      const expected = this.expectedSlotIds;
+      if (expected.some((id, index) => this.seenSlotIds[index] !== id) || expected.length !== this.seenSlotIds.length) {
+        const missing = expected.filter(id => !this.seenSlotIds.includes(id));
+        this.report(missing.length ? 'TEX_SLOT_MISSING' : 'TEX_SLOT_REORDERED', missing.length ? `Missing TeX-owned slot pointer(s): ${missing.join(', ')}.` : 'TeX-owned slot pointers must remain in their saved order.', 1);
       }
     }
     for (const cite of this.citations) if (!validId.test(cite.id)) this.report('INVALID_CITATION', `Use a nonempty literal citation key: ${cite.id}`, cite.line);
@@ -405,6 +416,15 @@ class DocumentParser {
         i = end + 1; continue;
       }
       if (/^ {0,3}(?:%%|<!--)/.test(text)) {
+        const slotId = parseSlotPointer(text);
+        if (slotId) {
+          const slot = this.slots.get(slotId);
+          if (!slot) this.report('UNKNOWN_TEX_SLOT', `No owned TeX payload exists for ${slotId}.`, start.line);
+          else if (this.seenSlotIds.includes(slotId)) this.report('DUPLICATE_TEX_SLOT', `TeX-owned slot ${slotId} appears more than once.`, start.line);
+          this.seenSlotIds.push(slotId);
+          nodes.push({ type: 'slot', line: start.line, endLine: start.line, id: slotId, tex: slot?.tex || '' });
+          i++; continue;
+        }
         const comment = [start];
         let joined = text;
         const html = /^ {0,3}<!--/.test(text);
@@ -617,6 +637,7 @@ function renderDocument(nodes) {
       for (const item of node.content) emit(item.text, item.line);
       emit('\\end{verbatim}', node.endLine);
     } else if (node.type === 'raw') emit(node.value, node.line);
+    else if (node.type === 'slot') emit(node.tex.slice(0, -2), node.line);
     else if (node.type === 'bibliography') emit('\\printbibliography', node.line);
     else if (node.type === 'rule') emit('\\par\\noindent\\rule{\\linewidth}{0.4pt}', node.line);
     else if (node.type === 'list') {
@@ -655,8 +676,8 @@ function renderDocument(nodes) {
 }
 
 /** Convert one immutable snapshot into a document, TeX, diagnostics, and source map. */
-function convertMarkdown(snapshot, filename) {
-  const parser = new DocumentParser(filename);
+function convertMarkdown(snapshot, filename, options = {}) {
+  const parser = new DocumentParser(filename, options);
   if (Buffer.byteLength(snapshot.body) > 4 * 1024 * 1024) {
     parser.report('SOURCE_SIZE_LIMIT', 'Structural conversion currently accepts at most 4 MiB of Markdown.', snapshot.bodyStartLine);
     return { document: { type: 'document', children: [] }, tex: '', lines: [], diagnostics: parser.diagnostics };
