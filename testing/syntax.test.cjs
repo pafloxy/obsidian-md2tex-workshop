@@ -102,7 +102,6 @@ test('malformed commands, ownership and renderer collisions fail at the source l
 test('plain math cannot acquire a counter and equation bodies have one explicit meaning', () => {
   const cases = [
     ['$$\n\\label{eq:a}\nx=1\n$$', 'LABEL_IN_MATH'],
-    ['$$\\begin{equation}x=1\\end{equation}$$', 'NUMBERED_ENVIRONMENT_IN_MATH'],
     ['$$\\begin{align*}x&=1\\label{eq:a}\\end{align*}$$', 'LABEL_IN_MATH'],
     ['$$prefix\\begin{align}x&=1\\end{align}$$', 'NUMBERED_ENVIRONMENT_IN_MATH'],
     ['$[ref{a}]$', 'DIRECTIVE_IN_MATH'],
@@ -115,6 +114,7 @@ test('plain math cannot acquire a counter and equation bodies have one explicit 
     ['> [!equation]\n> $$\n> \\label{a}\n> x=1\n> $$', 'LABEL_IN_MATH'],
   ];
   for (const [body, code] of cases) assert.ok(convert(body).diagnostics.some(item => item.code === code), body);
+  assert.equal(valid('$$\\begin{equation}x=1\\end{equation}$$').tex.trim(), '\\begin{equation}x=1\\end{equation}');
   assert.match(valid('> [!equation]\n> $$x=1$$').tex, /\\begin\{equation\}\nx=1\n\\end\{equation\}/);
   assert.match(valid('> [!equation]\n> $$\n> \\begin{aligned}\n> x&=1\\\\\n> y&=2\n> \\end{aligned}\n> $$').tex, /\\begin\{aligned\}/);
 });
@@ -189,6 +189,60 @@ test('a complete align-star display round trips natively without acquiring label
   assert.equal(result.markdown, '$$\n\\begin{align*}\nx&=1\\\\\ny&=2\n\\end{align*}\n$$\n\n');
   assert.equal(render(result.markdown), tex);
   assert.deepEqual(valid(result.markdown).document.labels, []);
+});
+
+test('a corpus-style equation with a trailing label returns as visible native math', () => {
+  const tex = '\\begin{equation}\n    g_*(A)=i\\bra{\\psi^*}[A,H]\\ket{\\psi^*}.\n    \\label{eq:ag-insertion-gradient}\n\\end{equation}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.equal(result.markdown, `$$\n${tex.trimEnd()}\n$$\n\n`);
+  assert.equal(render(result.markdown), tex);
+});
+
+test('equation-star remains visible native math and rejects labels', () => {
+  const tex = '\\begin{equation*}\nx=1\n\\end{equation*}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.equal(render(result.markdown), tex);
+  assert.deepEqual(valid(result.markdown).document.labels, []);
+  assert.ok(convert('$$\\begin{equation*}x=1\\label{eq:x}\\end{equation*}$$').diagnostics.some(item => item.code === 'LABEL_IN_MATH'));
+});
+
+test('a corpus-style figure exposes caption and label while preserving its graphic body', () => {
+  const tex = '\\begin{figure}[H]\n    \\centering\n\n    \\begin{minipage}{0.58\\linewidth}\n        \\centering\n        \\includegraphics[width=\\linewidth]{figs/evidence.png}\n    \\end{minipage}\n    \\caption{Gradient evidence for \\cref{fig:source}.}\n    \\label{fig:evidence}\n\\end{figure}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.match(result.markdown, /^> \[!figure\|H\] Gradient evidence/);
+  assert.match(result.markdown, /> <!-- \[label\{fig:evidence\}\] -->/);
+  assert.match(result.markdown, /> ```\{=latex\}\n>     \\centering/);
+  assert.equal(render(result.markdown), tex);
+  const edited = result.markdown.replace('Gradient evidence', 'Updated gradient evidence').replaceAll('fig:evidence', 'fig:updated');
+  const editedTex = render(edited);
+  assert.match(editedTex, /\\caption\{Updated gradient evidence/);
+  assert.match(editedTex, /\\label\{fig:updated\}/);
+  assert.match(editedTex, /\\includegraphics\[width=\\linewidth\]\{figs\/evidence\.png\}/);
+});
+
+test('a corpus-style table exposes caption and label while preserving complex tabular TeX', () => {
+  const tex = '\\begin{table}[H]\n\\centering\n\\footnotesize\n\\begin{tabular}{@{}>{\\raggedright\\arraybackslash}p{0.4\\linewidth}p{0.5\\linewidth}@{}}\nConstruction & Limitation \\\\\n\\hline\nWarm start & Sector-limited. \\\\\n\\end{tabular}\n\\caption{Reference constructions.}\n\\label{tab:references}\n\\end{table}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.match(result.markdown, /^> \[!table\|H\] Reference constructions\./);
+  assert.match(result.markdown, /> \\begin\{tabular\}/);
+  assert.equal(render(result.markdown), tex);
+});
+
+test('structured figure and table callouts refuse missing TeX bodies', () => {
+  const source = '> [!figure|H] Caption\n> <!-- [label{fig:missing}] -->\n> Prose is not an owned graphic body.\n';
+  const result = convert(source);
+  assert.ok(result.diagnostics.some(item => item.code === 'STRUCTURED_TEX_BODY'));
+});
+
+test('a multiline float caption remains exact opaque TeX instead of being flattened', () => {
+  const tex = '\\begin{table}[H]\n\\centering\n\\begin{tabular}{cc}\nA & B \\\\\n\\end{tabular}\n\\caption{First line\nsecond line.}\n\\label{tab:multiline}\n\\end{table}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'raw-tex');
+  assert.equal(render(result.markdown), tex);
 });
 
 test('unsupported TeX math remains exact in a raw island instead of inventing draft syntax', () => {

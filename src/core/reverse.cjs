@@ -64,6 +64,21 @@ function rawIsland(tex) {
   return `${fence}{=latex}\n${content}\n${fence}\n\n`;
 }
 
+/** Build a visible structured callout around an exact TeX-owned figure/table body. */
+function structuredIsland(kind, placement, caption, label, bodyLines) {
+  const body = bodyLines.join('\n');
+  const longest = Math.max(2, ...(body.match(/`+/g) || []).map(run => run.length));
+  const fence = '`'.repeat(longest + 1);
+  return [
+    `[!${kind}|${placement}] ${caption}`,
+    `<!-- [label{${label}}] -->`,
+    '',
+    `${fence}{=latex}`,
+    ...bodyLines,
+    fence
+  ].map(line => line ? `> ${line}` : '>').join('\n');
+}
+
 /** Read a balanced TeX argument, protecting control symbols and line comments. */
 function groupEnd(text, start) {
   const open = text[start];
@@ -175,16 +190,36 @@ function inverseBlocks(tex, depth = 0) {
       }
       output.push(markdown.join('\n')); i = end + 1; continue;
     }
+    const structured = lines[i].match(/^\\begin\{(figure|table)\}\[([!htbpH]+)\]$/);
+    if (structured) {
+      const end = environmentEnd(lines, i);
+      if (end < 0 || lines[end] !== `\\end{${structured[1]}}`) return null;
+      const label = lines[end - 1]?.match(/^(\s*)\\label\{([a-zA-Z0-9:._/-]+)\}$/);
+      const captionOpening = lines[end - 2]?.match(/^(\s*)\\caption\{/);
+      if (!label || !captionOpening || label[1] !== captionOpening[1]) return null;
+      const captionStart = captionOpening[0].length - 1;
+      const captionEnd = groupEnd(lines[end - 2], captionStart);
+      if (captionEnd !== lines[end - 2].length) return null;
+      const caption = inverseInline(lines[end - 2].slice(captionStart + 1, captionEnd - 1));
+      const bodyLines = lines.slice(i + 1, end - 2);
+      if (caption === null || !caption.trim() || !bodyLines.some(line => line.trim())) return null;
+      output.push(structuredIsland(structured[1], structured[2], caption, label[2], bodyLines));
+      i = end + 1; continue;
+    }
     const equation = lines[i].match(/^\\begin\{(equation\*?|align\*?|alignat\*?|gather\*?|multline\*?|flalign\*?)\}$/);
     if (equation) {
       const end = environmentEnd(lines, i);
       if (end < 0) return null;
-      if (equation[1] === 'align' || equation[1] === 'align*') {
+      if (['align', 'align*', 'equation*'].includes(equation[1])) {
         output.push('$$\n' + lines.slice(i, end + 1).join('\n') + '\n$$');
         i = end + 1; continue;
       }
       if (equation[1] !== 'equation') return null;
       const label = lines[i + 1]?.match(/^\\label\{([a-zA-Z0-9:._/-]+)\}$/);
+      if (!label && lines.slice(i + 1, end).some(line => /(?<!\\)\\label\{/.test(line))) {
+        output.push('$$\n' + lines.slice(i, end + 1).join('\n') + '\n$$');
+        i = end + 1; continue;
+      }
       const inner = lines.slice(i + (label ? 2 : 1), end).join('\n');
       const header = '[!equation]\n' + (label ? `<!-- [label{${label[1]}}] -->\n` : '');
       output.push((header + '$$\n' + inner + '\n$$').split('\n').map(line => '> ' + line).join('\n'));

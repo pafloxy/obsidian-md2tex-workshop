@@ -53,9 +53,23 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
 
    Unlink archives the binding and retains the TeX, dependencies and history. The old target remains claimed; this version does not provide automatic re-adoption or history deletion. Use a new target for a new binding.
 
-## Native align recovery
+## Native math and hybrid structured recovery
 
-A complete top-level `align` or `align*` environment inserted inside one marked TeX block recovers as visible Markdown display math with the environment retained inside `$$` delimiters. Numbered `align` rows may retain row-level `\label{...}` declarations; `align*` remains unnumbered and rejects labels. Preview accepts the candidate only when rebuilding that Markdown regenerates the edited environment exactly, so this native route preserves `&`, `\\`, label position, and numbering semantics without creating a TeX-owned slot.
+A complete top-level `equation`, `equation*`, `align`, or `align*` environment inserted inside one marked TeX block can recover as visible Markdown display math with the environment retained inside `$$` delimiters. Numbered `equation` and `align` blocks may retain `\label{...}` declarations; starred forms remain unnumbered and reject labels. A canonical generated `equation` can still recover as the simpler `[!equation]` callout. Preview accepts every candidate only when rebuilding its Markdown regenerates the edited environment exactly, so this native route preserves alignment tokens, label position, and numbering semantics without creating a TeX-owned slot.
+
+A top-level `figure` or `table` can recover as a hybrid callout when it has a valid placement, a nonempty one-line trailing `\caption{...}`, a trailing `\label{...}` at the same indentation, and a nonempty body before those commands. The caption and label become ordinary editable Markdown; everything between the opening environment and caption remains exact TeX in one quoted `{=latex}` fence. This preserves `\includegraphics`, `minipage`, `tabular`, column specifications, spacing, and other body-level TeX without claiming to translate them.
+
+````markdown
+> [!figure|H] Gradient evidence.
+> <!-- [label{fig:gradient-evidence}] -->
+>
+> ```{=latex}
+>     \centering
+>     \includegraphics[width=\linewidth]{figs/evidence.png}
+> ```
+````
+
+Changing the callout title edits the TeX caption, changing the hidden label edits the TeX target ID, and changing the placement after the pipe edits the float placement. The nested fence is intentionally TeX-owned authoring text: keep the caption and label outside it. Multiline captions, missing labels, noncanonical command order, unsupported math environments, and other ambiguous structures fall back to a TeX-owned slot rather than being partially guessed.
 
 ## TeX-owned slots
 
