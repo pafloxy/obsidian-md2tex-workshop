@@ -179,6 +179,10 @@ function inverseBlocks(tex, depth = 0) {
     if (equation) {
       const end = environmentEnd(lines, i);
       if (end < 0) return null;
+      if (equation[1] === 'align' || equation[1] === 'align*') {
+        output.push('$$\n' + lines.slice(i, end + 1).join('\n') + '\n$$');
+        i = end + 1; continue;
+      }
       if (equation[1] !== 'equation') return null;
       const label = lines[i + 1]?.match(/^\\label\{([a-zA-Z0-9:._/-]+)\}$/);
       const inner = lines.slice(i + (label ? 2 : 1), end).join('\n');

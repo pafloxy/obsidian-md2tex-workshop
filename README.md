@@ -21,7 +21,7 @@ Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and n
 | **Let each note own its document recipe.** | YAML can select the preamble, engine, bibliography backend, bibliography files, and explicit bibliography position, with recorded setting origins. | [Note-owned recipe](examples/claims/03-note-owned-recipe.md) |
 | **Bring selected TeX edits back without silently overwriting Markdown.** | A persistent linked TeX target uses anchored checkpoints, a read-only Preview, a separate Apply gesture, backups, exact freshness checks, conflict refusal, native editor save, and disk readback before acknowledgement. | [Guarded round trip](examples/claims/04-guarded-round-trip.md) |
 | **Add supported labels without leaving the Markdown editor.** | A command and bundled `Mod+Shift+L` hotkey insert a hidden label comment and place the caret inside the identifier braces. | [Label shortcut](examples/claims/05-label-shortcut.md) |
-| **Keep hand-tuned TeX alive beside editable Markdown.** | A linked target can retain an exact TeX-owned table, figure, or alignment block behind one stable Markdown pointer; missing, duplicated, foreign, or reordered pointers stop before publication. | [TeX-owned slot](examples/claims/06-tex-owned-slot.md) |
+| **Keep hand-tuned TeX alive beside editable Markdown.** | A linked target can retain an exact TeX-owned table, figure, or unsupported custom environment behind one stable Markdown pointer; missing, duplicated, foreign, or reordered pointers stop before publication. | [TeX-owned slot](examples/claims/06-tex-owned-slot.md) |
 
 The [claim-demo index](examples/claims/README.md) gives repository-root commands for building the six notes.
 
@@ -74,7 +74,7 @@ The round trip intentionally handles a bounded TeX subset, not arbitrary collabo
 
 ## Authoring subset
 
-Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, theorem-like Obsidian callouts, proof callouts, equation callouts, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
+Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, complete top-level `align` and `align*` displays, theorem-like Obsidian callouts, proof callouts, equation callouts, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
 
 ```markdown
 # A useful identity
@@ -90,10 +90,17 @@ Workshop supports ordinary prose, headings, lists, literal code, inline/display 
 > q(x)=x^2
 > $$
 
-See [ref{lem:square}] and [ref{eq:square}].
+$$
+\begin{align}
+f(x)&=x^2\\
+g(x)&=x^2+1\label{eq:aligned-pair}
+\end{align}
+$$
+
+See [ref{lem:square}], [ref{eq:square}], and [ref{eq:aligned-pair}].
 ```
 
-Plain `$$` displays remain unnumbered. Images, tables, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
+Plain `$$` displays remain unnumbered unless they contain exactly one complete top-level `align`; `align*` remains unnumbered. Images, tables, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
 
 ### Insert a hidden label quickly
 

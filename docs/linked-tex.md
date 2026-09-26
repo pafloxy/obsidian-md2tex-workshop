@@ -17,9 +17,7 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
    node scripts/workshop.cjs tex-target-status tmp/quickstart/note.md
    ```
 
-   Registration does not change Markdown text or generate TeX. Repeating the same
-   registration is idempotent. A note cannot acquire a second target without an
-   explicit unlink; two notes cannot claim the same new target.
+   Registration does not change Markdown text or generate TeX. Repeating the same registration is idempotent. A note cannot acquire a second target without an explicit unlink; two notes cannot claim the same new target.
 
 2. Build normally, from either interface:
 
@@ -27,39 +25,23 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
    node scripts/workshop.cjs build tmp/quickstart/note.md --out-dir tmp/linked-builds
    ```
 
-   A successful build publishes to the same `paper.tex`, retaining previous bytes
-   and a new checkpoint. An identical source/recipe leaves the target unchanged.
-   A failed compilation never publishes. If TeX changed externally, the PDF build
-   can still succeed while `result.target` reports a conflict and the target stays
-   untouched. CLI `build` exits 1 for a target publication error; inspect both
-   `status` and `target.status`. Worker results preserve the successful compiler
-   status and display the publication warning separately.
+   A successful build publishes to the same `paper.tex`, retaining previous bytes and a new checkpoint. An identical source/recipe leaves the target unchanged. A failed compilation never publishes. If TeX changed externally, the PDF build can still succeed while `result.target` reports a conflict and the target stays untouched. CLI `build` exits 1 for a target publication error; inspect both `status` and `target.status`. Worker results preserve the successful compiler status and display the publication warning separately.
 
-3. Edit the named TeX within its marked body blocks. Keep marker lines, their
-   separating blank lines and the document wrapper intact. Then preview:
+3. Edit the named TeX within its marked body blocks. Keep marker lines, their separating blank lines and the document wrapper intact. Then preview:
 
    ```sh
    node scripts/workshop.cjs tex-target-sync tmp/quickstart/note.md
    ```
 
-   The result identifies a new Markdown candidate, comparison inputs, compiled
-   PDF and `artifacts.report`. Supported edits recover natively; exact raw-TeX
-   preservation and conflicts use the existing [round-trip policy](roundtrip.md).
-   Nothing is applied during preview. `--prefer md|tex` is an explicit conflict
-   choice; it is never chosen automatically.
+   The result identifies a new Markdown candidate, comparison inputs, compiled PDF and `artifacts.report`. Supported edits recover natively; exact raw-TeX preservation and conflicts use the existing [round-trip policy](roundtrip.md). Nothing is applied during preview. `--prefer md|tex` is an explicit conflict choice; it is never chosen automatically.
 
-4. After reviewing the candidate, pause editors/autosave on **both** files and
-   apply using the actual report path, from the project root:
+4. After reviewing the candidate, pause editors/autosave on **both** files and apply using the actual report path, from the project root:
 
    ```sh
    node scripts/workshop.cjs tex-target-apply tmp/quickstart/note.md --preview PATH_TO_PREVIEW_JSON
    ```
 
-   This reuses the existing source/checkpoint/candidate/freshness guards and
-   backup/readback behavior, then acknowledges the accepted TeX revision in the
-   shared link state. Reload the Markdown, continue editing and build again to
-   evolve the same TeX path. Direct `tex-apply` does not acknowledge a linked target;
-   use `tex-target-apply` for this workflow.
+   This reuses the existing source/checkpoint/candidate/freshness guards and backup/readback behavior, then acknowledges the accepted TeX revision in the shared link state. Reload the Markdown, continue editing and build again to evolve the same TeX path. Direct `tex-apply` does not acknowledge a linked target; use `tex-target-apply` for this workflow.
 
    In Obsidian, choose **Preview TeX changes**, inspect the current and proposed Markdown, and press **Apply to Markdown** in that exact review tab. With no open Markdown view, the plugin uses a guarded vault compare-and-write. With exactly one open view, it checks the unchanged buffer, performs one whole-note editor transaction, requests a native save, and waits for bounded disk readback; the transaction remains available to native undo. Two or more views are refused. Any changed source, TeX, checkpoint, candidate, preview, link state, post-transaction editor change, unconfirmed persistence or mismatched readback prevents linked-state acknowledgement and requires inspection plus a fresh preview; the plugin never rolls back over later edits.
 
@@ -69,13 +51,15 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
    node scripts/workshop.cjs tex-target-unlink tmp/quickstart/note.md
    ```
 
-   Unlink archives the binding and retains the TeX, dependencies and history. The
-   old target remains claimed; this version does not provide automatic re-adoption
-   or history deletion. Use a new target for a new binding.
+   Unlink archives the binding and retains the TeX, dependencies and history. The old target remains claimed; this version does not provide automatic re-adoption or history deletion. Use a new target for a new binding.
+
+## Native align recovery
+
+A complete top-level `align` or `align*` environment inserted inside one marked TeX block recovers as visible Markdown display math with the environment retained inside `$$` delimiters. Numbered `align` rows may retain row-level `\label{...}` declarations; `align*` remains unnumbered and rejects labels. Preview accepts the candidate only when rebuilding that Markdown regenerates the edited environment exactly, so this native route preserves `&`, `\\`, label position, and numbering semantics without creating a TeX-owned slot.
 
 ## TeX-owned slots
 
-When an edited whole marked top-level block cannot recover as ordinary Markdown, linked preview promotes it to a stable pointer such as `<!-- [tex-slot{slot-b0003}] -->`. The matching TeX bytes stay in the target's owned state and are emitted unchanged whenever the Markdown note is rebuilt. This is useful for a hand-tuned `table`, `figure`, or multi-row `align` block while the surrounding Markdown remains ordinary editable text.
+When an edited whole marked top-level block cannot recover as ordinary Markdown, linked preview promotes it to a stable pointer such as `<!-- [tex-slot{slot-b0003}] -->`. The matching TeX bytes stay in the target's owned state and are emitted unchanged whenever the Markdown note is rebuilt. This is useful for a hand-tuned `table`, `figure`, or unsupported custom environment while the surrounding Markdown remains ordinary editable text.
 
 The pointer is an integrity handle, not an editable copy of TeX. Do not delete it, duplicate it, invent a new ID, or move it relative to another slot. A linked build validates the complete ordered pointer set before target publication and refuses `TEX_SLOT_MISSING`, `DUPLICATE_TEX_SLOT`, `UNKNOWN_TEX_SLOT`, or `TEX_SLOT_REORDERED` with the existing target left intact. After a TeX-side slot edit, use Preview and Apply as usual; Apply updates the owned payload only after the normal candidate, freshness, backup, and readback checks pass.
 

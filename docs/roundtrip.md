@@ -4,7 +4,7 @@ This is a **standalone CLI prototype**, not a live Obsidian synchronizer. It add
 
 The practical discipline is: keep Markdown as your usual editing surface, take a checkpoint before editing TeX, and return through a preview. Keep both files saved; pause editing/autosave during apply and reload the note afterward.
 
-The [uniform authoring syntax](authoring.md) participates in the same workflow: heading/callout label comments belong to their enclosing block, new equations recover as `[!equation]` callouts, and references, citations and annotations recover as `[ref{...}]`, `[cite{...}]` and `[todo{...}]`. Unchanged blocks retain their exact Markdown bytes; a simple source edit can preserve formatting and comments. A structural inverse emits the canonical spelling only when it regenerates the edited TeX exactly. Ordinary Markdown-only comments that cannot be safely repositioned still stop recovery. Standalone checkpoints preserve advanced TeX, including independently numbered `align` rows, as raw-TeX fences; managed linked targets can instead use the opaque [TeX-owned slot](linked-tex.md#tex-owned-slots) representation.
+The [uniform authoring syntax](authoring.md) participates in the same workflow: heading/callout label comments belong to their enclosing block, new equations recover as `[!equation]` callouts, complete top-level `align` and `align*` environments recover as visible `$$` Markdown math, and references, citations and annotations recover as `[ref{...}]`, `[cite{...}]` and `[todo{...}]`. Unchanged blocks retain their exact Markdown bytes; a simple source edit can preserve formatting and comments. A structural inverse emits the canonical spelling only when it regenerates the edited TeX exactly. Ordinary Markdown-only comments that cannot be safely repositioned still stop recovery. Unsupported advanced TeX remains an explicit raw-TeX fence in standalone checkpoints or can use an opaque [TeX-owned slot](linked-tex.md#tex-owned-slots) in a managed linked target.
 
 Checkpoint hashes deliberately reject a converter changed since checkout. This syntax update does not silently upgrade old sessions: finish them with their original converter or adapt a copy of the source and create a fresh checkpoint. There is no automatic note migration or live renderer change.
 
@@ -67,7 +67,7 @@ Completion: your updated note is the applied candidate, its backup exists, and i
 | --- | --- |
 | Generated block unchanged | Reuse original Markdown byte-for-byte, including comments, metadata spelling, callout aliases, whitespace and code-fence language. |
 | A simple unambiguous text/math change | Try a source-preserving patch; accept it only if valid local Markdown regenerates exactly the edited block. |
-| Newly added supported structure | Try headings, prose/emphasis, references/citations, theorem/proof callouts, nested lists and supported display environments. Each candidate must pass the same exact-output gate. |
+| Newly added supported structure | Try headings, prose/emphasis, references/citations, theorem/proof callouts, nested lists, equation callouts, and complete top-level `align`/`align*` displays. Each candidate must pass the same exact-output gate. |
 | Custom commands/environments or an inverse that does not pass | Preserve the block in an explicit raw-TeX island; report `RAW_TEX_PRESERVED`. This is preservation, not a claim that the TeX became ordinary Markdown. |
 | Uncertain Markdown-only information or damaged correspondence | Stop with a diagnostic and retain inputs. Do not infer which content is dispensable. |
 
