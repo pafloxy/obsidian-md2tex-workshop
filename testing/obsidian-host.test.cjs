@@ -50,6 +50,7 @@ class Events {
 /** Build inert host interfaces around an isolated real vault directory. */
 function host(vaultRoot, saved) {
   const notices = []; const opened = []; const external = []; const leaves = []; const embeds = []; const copied = [];
+  let saveSequence = 0;
   /** Model the native renderer's parent-owned lifecycle. */
   class Component {
     /** Keep independently owned children. */
@@ -85,8 +86,13 @@ function host(vaultRoot, saved) {
         transaction: (change, origin) => { this.undo.push(this.text); this.transactions.push({ change, origin }); this.text = change.changes[0].text; },
       };
     }
-    /** Schedule persistence through the public TextFileView save-request interface. */
-    requestSave() { void fs.writeFile(path.join(vaultRoot, this.file.path), this.text).then(() => vault.emit('modify', this.file)); }
+    /** Schedule one atomic persistence result through the public TextFileView save-request interface. */
+    requestSave() {
+      const target = path.join(vaultRoot, this.file.path);
+      const temporary = `${target}.test-save-${process.pid}-${++saveSequence}`;
+      const text = this.text;
+      void fs.writeFile(temporary, text).then(() => fs.rename(temporary, target)).then(() => vault.emit('modify', this.file));
+    }
   }
   /** Supply the public ItemView content element. */
   class ItemView extends Component { /** Bind a leaf and stable content. */ constructor(leaf) { super(); this.leaf = leaf; this.contentEl = new Element(); } }
