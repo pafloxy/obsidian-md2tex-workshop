@@ -13,7 +13,7 @@ const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
 const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
 const { createRuntime } = require('../src/obsidian/plugin.cjs');
-const { createViewClass } = require('../src/obsidian/view.cjs');
+const { createViewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '..');
 
@@ -169,6 +169,33 @@ async function until(predicate) {
   while (Date.now() < deadline) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
   throw new Error('Host fixture did not reach its expected state');
 }
+
+test('review formatter emits git-style colored-line classes without losing exact patch syntax', () => {
+  const diff = createUnifiedDiff('# Draft\n\nBefore\nKeep\n', '# Draft\n\nAfter\nKeep\n');
+  assert.equal(diff.changed, true);
+  assert.deepEqual(diff.lines, [
+    { kind: 'diff-header', text: 'diff --git a/current.md b/proposed.md' },
+    { kind: 'header-delete', text: '--- a/current.md' },
+    { kind: 'header-add', text: '+++ b/proposed.md' },
+    { kind: 'hunk', text: '@@ -1,4 +1,4 @@' },
+    { kind: 'context', text: ' # Draft' },
+    { kind: 'context', text: ' ' },
+    { kind: 'delete', text: '-Before' },
+    { kind: 'add', text: '+After' },
+    { kind: 'context', text: ' Keep' },
+  ]);
+  const distant = createUnifiedDiff('old\n1\n2\n3\n4\n5\n6\n7\nold again\n', 'new\n1\n2\n3\n4\n5\n6\n7\nnew again\n');
+  assert.equal(distant.lines.filter(line => line.kind === 'hunk').length, 2, 'distant edits use separate patch hunks');
+  const newline = createUnifiedDiff('same\n', 'same');
+  assert.equal(newline.changed, true);
+  assert.ok(newline.lines.some(line => line.text === '\\ No newline at end of file'));
+  const unchanged = createUnifiedDiff('same\n', 'same\n');
+  assert.equal(unchanged.changed, false);
+  assert.equal(unchanged.lines.at(-1).text, ' No Markdown changes.');
+  const created = createUnifiedDiff('', 'first line\n');
+  assert.ok(created.lines.some(line => line.kind === 'hunk' && line.text === '@@ -0,0 +1 @@'));
+  assert.ok(created.lines.some(line => line.kind === 'add' && line.text === '+first line'));
+});
 
 test('editor label command inserts the supported comment and targets its identifier', async () => {
   const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/editor-label-command-'));
@@ -522,6 +549,11 @@ for (const format of ['direct', 'brat']) test(`CLI target discovery, auto-build,
   const candidateView = value.app.workspace.getLeavesOfType('md2tex-workshop-review')[0].view;
   assert.match(candidateView.candidateEl.text, /from TeX review/);
   assert.doesNotMatch(candidateView.currentEl.text, /from TeX review/);
+  const patchText = candidateView.patchEl.children.map(line => line.text).join('');
+  assert.match(patchText, /^diff --git a\/current\.md b\/proposed\.md\n--- a\/current\.md\n\+\+\+ b\/proposed\.md\n@@ /);
+  assert.ok(candidateView.patchEl.children.some(line => /patch-delete/.test(line.className) && /from the editor/.test(line.text)));
+  assert.ok(candidateView.patchEl.children.some(line => /patch-add/.test(line.className) && /from TeX review/.test(line.text)));
+  assert.match(candidateView.patchEl['aria-label'], /Deleted lines start with minus/);
   await fs.writeFile(target, (await fs.readFile(target, 'utf8')).replace('from TeX review', 'from refreshed TeX review'));
   const refreshed = await runtime.previewLinked();
   assert.equal(refreshed.status, 'success');
