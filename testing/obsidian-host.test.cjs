@@ -195,6 +195,10 @@ test('review formatter emits git-style colored-line classes without losing exact
   const created = createUnifiedDiff('', 'first line\n');
   assert.ok(created.lines.some(line => line.kind === 'hunk' && line.text === '@@ -0,0 +1 @@'));
   assert.ok(created.lines.some(line => line.kind === 'add' && line.text === '+first line'));
+  const manyLines = Array.from({ length: 2500 }, (_, index) => `line ${index}`).join('\n') + '\n';
+  const asymmetric = createUnifiedDiff('one line\n', manyLines);
+  assert.ok(asymmetric.lines.some(line => line.kind === 'delete' && line.text === '-one line'));
+  assert.ok(asymmetric.lines.some(line => line.kind === 'add' && line.text === '+line 2499'));
 });
 
 test('editor label command inserts the supported comment and targets its identifier', async () => {

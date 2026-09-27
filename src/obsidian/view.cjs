@@ -6,6 +6,7 @@ const { OutputTabs } = require('./output-tabs.cjs');
 
 const patchContextLines = 3;
 const patchWorkLimit = 500000;
+const patchTraceLineLimit = 2000;
 
 /** Split exact text into patch lines while retaining whether its final line is terminated. Usage: splitPatchText('one\n') -> { lines: ['one'], finalNewline: true }. */
 function splitPatchText(text) {
@@ -49,7 +50,7 @@ function backtrackLineEdits(trace, before, after) {
 function lineEdits(before, after) {
   if (!before.length) return after.map(text => ({ kind: 'add', text }));
   if (!after.length) return before.map(text => ({ kind: 'delete', text }));
-  if (before.length * after.length > patchWorkLimit) return [
+  if (before.length * after.length > patchWorkLimit || before.length + after.length > patchTraceLineLimit) return [
     ...before.map(text => ({ kind: 'delete', text })),
     ...after.map(text => ({ kind: 'add', text })),
   ];
