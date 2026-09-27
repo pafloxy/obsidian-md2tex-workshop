@@ -12,7 +12,7 @@ const vm = require('node:vm');
 const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
 const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
-const { createRuntime } = require('../src/obsidian/plugin.cjs');
+const { createRuntime, resolvePanelBibliography } = require('../src/obsidian/plugin.cjs');
 const { createViewClass, createReviewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '..');
@@ -262,12 +262,62 @@ test('editor label command inserts the supported comment and targets its identif
   } finally { runtime.dispose(); }
 });
 
+test('panel bibliography defaults accept only verified vault-local bib files', async () => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/panel-bibliography-'));
+  await fs.mkdir(path.join(vaultRoot, 'references'));
+  await fs.writeFile(path.join(vaultRoot, 'references/main.bib'), '@book{sample, title={Panel bibliography}}\n');
+  await fs.symlink('main.bib', path.join(vaultRoot, 'references/selected.bib'));
+  assert.deepEqual(resolvePanelBibliography('references/main.bib\nreferences/main.bib', vaultRoot), [path.join(vaultRoot, 'references/main.bib')]);
+  for (const invalid of ['../outside.bib', '/tmp/outside.bib', '.obsidian/private.bib', 'references/notes.tex']) {
+    assert.throws(() => resolvePanelBibliography(invalid, vaultRoot), /vault-relative \.bib/);
+  }
+  const value = host(vaultRoot, { nodeCommand: process.execPath });
+  const file = new value.api.TFile('draft.md');
+  const editor = new value.api.MarkdownView(file, 'A citation [cite{sample}].\n\n[printbibliography]\n');
+  value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
+  const plugin = new value.api.Plugin();
+  const runtime = createRuntime(plugin, value.api);
+  try {
+    await runtime.start();
+    await runtime.openView();
+    const view = value.app.workspace.getLeavesOfType('md2tex-workshop-view')[0].view;
+    assert.match(view.bibStatusEl.text, /No panel bibliography fallback/);
+    view.bibInput.value = 'references/selected.bib';
+    view.bibMode.value = 'bibtex';
+    await view.saveBibButton.events.click();
+    assert.equal(plugin.saves, 1);
+    assert.deepEqual(runtime.configuration().recipeOverrides, { bib: [path.join(vaultRoot, 'references/main.bib')], bibliography: 'bibtex' }, 'the build receives the canonical verified file, not a later-replaceable alias');
+    assert.match(view.bibStatusEl.text, /1 \.bib file/);
+    await assert.rejects(() => runtime.setBibliography('references/missing.bib', 'bibtex'), /Bibliography file is unavailable/);
+    assert.equal(runtime.settings.bibliographyFiles, 'references/selected.bib', 'a failed update restores the last valid setting');
+    let finishSave;
+    plugin.saveData = async () => new Promise(resolve => { finishSave = resolve; });
+    const update = runtime.setBibliography('references/selected.bib', 'bibtex');
+    await until(() => runtime.scheduler.held && finishSave);
+    const build = runtime.build();
+    assert.equal(runtime.scheduler.running, null, 'the build remains queued until the bibliography transaction finishes');
+    finishSave(); await update;
+    const built = await build;
+    assert.equal(built.result.status, 'success');
+    assert.equal(built.result.bibliographyPlacement, 'explicit');
+    const pdf = await execute('pdftotext', [built.result.artifacts.pdf, '-'], { cwd: root });
+    assert.match(pdf.stdout, /Panel bibliography/);
+    const outside = path.join(root, 'tmp', `outside-${path.basename(vaultRoot)}.bib`);
+    await fs.writeFile(outside, '@book{outside, title={Outside vault}}\n');
+    await fs.rename(path.join(vaultRoot, 'references/selected.bib'), path.join(vaultRoot, 'references/selected.saved.bib'));
+    await fs.symlink(outside, path.join(vaultRoot, 'references/selected.bib'));
+    assert.throws(() => runtime.configuration(), /resolves outside this vault/, 'every build-time configuration rechecks symlink containment');
+  } finally { runtime.dispose(); }
+});
+
 test('shared explanation pane requires a current failure and discards stale replies', async () => {
   const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
   const first = { status: 'error', diagnostics: [{ severity: 'error', message: 'Unsupported image' }] };
   let state = { target: { path: 'draft.md' }, latest: first, latestCurrent: true };
   let subscriber; let resolveReply; const calls = [];
   const runtime = {
+    settings: {},
     explanationDescription: 'Bundled fake helper only.',
     controller: { state: () => state, subscribe(callback) { subscriber = callback; callback(state); return () => {}; }, async inspect() {}, async refreshTarget() {} },
     async explainFailure(options) { calls.push(options); if (calls.length === 1) return { status: 'refused', code: 'AGENT_CONSENT_REQUIRED' }; if (calls.length === 2) return new Promise(resolve => { resolveReply = resolve; }); return { status: 'success', packetId: '1234567890123456', explanation: { verdict: 'explained', summary: '<plain text>', suggestions: [{ text: 'Replace the image line.' }] } }; },

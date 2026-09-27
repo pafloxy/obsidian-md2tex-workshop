@@ -181,6 +181,24 @@ test('ambiguous or unsafe TeX hyperlinks remain lossless raw TeX', () => {
   }
 });
 
+test('research-note citation forms stay editable only when exact regeneration is available', () => {
+  const canonical = 'ADAPT-VQE uses an insertion gradient \\cite{GEBM19adaptive,TanS19qubit}.\n\n\\printbibliography\n\n';
+  const native = recover('', '', canonical);
+  assert.equal(native.method, 'structural-inverse');
+  assert.equal(native.markdown, 'ADAPT-VQE uses an insertion gradient [cite{GEBM19adaptive,TanS19qubit}].\n\n[printbibliography]\n\n');
+  assert.equal(render(native.markdown), canonical);
+
+  const nonbreaking = 'ADAPT-VQE uses an insertion gradient~\\cite{GEBM19adaptive}.\n\n';
+  const preserved = recover('', '', nonbreaking);
+  assert.equal(preserved.method, 'raw-tex', 'a TeX-specific nonbreaking space keeps the complete fragment lossless');
+  assert.equal(render(preserved.markdown), nonbreaking);
+
+  const legacyTail = '\\bibliographystyle{alpha}\n\\bibliography{extended-bibfile}\n\n';
+  const ignored = recover('', '', legacyTail);
+  assert.equal(render(ignored.markdown), legacyTail, 'legacy bibliography commands remain exact and are not translated into the native print directive');
+  assert.doesNotMatch(ignored.markdown, /\[printbibliography\]/);
+});
+
 test('simultaneous title, label, formula and reference edits regenerate exactly', () => {
   const source = '> [!lemma] Old title\n> <!-- [label{lem:old}] -->\n> See [ref{lem:old}]: $x^2$.\n';
   const before = render(source);

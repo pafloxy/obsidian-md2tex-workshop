@@ -113,7 +113,9 @@
 .md2tex-workshop-disclosure > summary { cursor: pointer; color: var(--text-muted); padding: 4px 0; }
 .md2tex-workshop-disclosure[open] > summary { margin-bottom: 8px; }
 .md2tex-workshop-disclosure > .md2tex-workshop-toolbar { margin-bottom: 8px; }
-.md2tex-workshop-disclosure input { min-width: 0; flex: 1 1 160px; }
+.md2tex-workshop-disclosure input,
+.md2tex-workshop-disclosure textarea { min-width: 0; flex: 1 1 160px; }
+.md2tex-workshop-disclosure textarea { min-height: 34px; resize: vertical; }
 .md2tex-workshop-manual button:disabled { opacity: 0.5; cursor: default; }
 .md2tex-workshop-diagnostics,
 .md2tex-workshop-log-text {

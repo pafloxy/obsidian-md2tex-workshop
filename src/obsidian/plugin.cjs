@@ -4,6 +4,7 @@
  * No automatic compilation, AI initialization, settings migration or source apply occurs.
  */
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const path = require('node:path');
 const { SourceStore } = require('./source-store.cjs');
 const { SourceWriter } = require('./source-writer.cjs');
@@ -15,7 +16,7 @@ const { createViewClass, createReviewClass } = require('./view.cjs');
 const { documentDirectory } = require('../core/artifacts.cjs');
 const { renderPdf } = require('./pdf-embed.cjs');
 
-const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', autoBuildEnabled: false, buildDebounceMs: 600 });
+const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600 });
 const labelMetadata = '<!-- [label{}] -->';
 const labelIdentifierOffset = '<!-- [label{'.length;
 
@@ -27,6 +28,46 @@ function insertLabelMetadata(editor) {
   editor.setCursor({ line: cursor.line, ch: cursor.ch + labelIdentifierOffset });
 }
 
+/** Resolve newline-separated panel bibliography entries inside one vault. Usage: resolvePanelBibliography('references.bib', '/vault'). */
+function resolvePanelBibliography(value, vaultRoot) {
+  if (typeof value !== 'string') throw new Error('Bibliography files must be entered one vault-relative .bib path per line');
+  const entries = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  if (entries.length > 16) throw new Error('Use at most 16 bibliography files');
+  const resolved = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const parts = entry.split(/[\\/]/);
+    if (path.isAbsolute(entry) || parts.some(part => !part || part === '.' || part === '..' || part === '.obsidian') || !/\.bib$/i.test(entry)) {
+      throw new Error('Use vault-relative .bib paths outside .obsidian, one per line');
+    }
+    const filename = path.resolve(vaultRoot, ...parts);
+    const relative = path.relative(vaultRoot, filename);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Bibliography files must stay inside this vault');
+    if (!seen.has(filename)) { seen.add(filename); resolved.push(filename); }
+  }
+  return resolved;
+}
+
+/** Recheck each panel bibliography at configuration time, including resolved symlink containment. */
+function verifiedPanelBibliography(value, vaultRoot) {
+  const files = resolvePanelBibliography(value, vaultRoot);
+  if (!files.length) return files;
+  const realVault = fsSync.realpathSync(vaultRoot);
+  const verified = [];
+  const seen = new Set();
+  for (const filename of files) {
+    let stat;
+    try { stat = fsSync.statSync(filename); }
+    catch { throw new Error(`Bibliography file is unavailable: ${path.relative(vaultRoot, filename)}`); }
+    if (!stat.isFile()) throw new Error(`Bibliography is not a regular file: ${filename}`);
+    const realFile = fsSync.realpathSync(filename);
+    const relative = path.relative(realVault, realFile);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Bibliography resolves outside this vault: ${filename}`);
+    if (!seen.has(realFile)) { seen.add(realFile); verified.push(realFile); }
+  }
+  return verified;
+}
+
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
 function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
@@ -34,17 +75,23 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
   const runtime = {
     plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null, reviewLeaf: null,
     /** Resolve explicit worker/recipe settings without consulting cached note frontmatter. */
-    configuration() {
-      const folder = this.settings.outputFolder;
+    configuration(settings = this.settings) {
+      const folder = settings.outputFolder;
       if (typeof folder !== 'string' || !folder.trim() || path.isAbsolute(folder) || folder.split(/[\\/]/).some(part => !part || part === '..' || part === '.' || part === '.obsidian')) throw new Error('Choose a normal vault-relative output folder');
-      const timeoutMs = Number(this.settings.buildTimeoutMs);
+      const timeoutMs = Number(settings.buildTimeoutMs);
       if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 300000) throw new Error('Build timeout must be between 100 and 300000 ms');
       const recipeOverrides = {};
-      if (this.settings.engineOverride) recipeOverrides.engine = this.settings.engineOverride;
-      if (this.settings.preambleOverride) recipeOverrides.preamble = path.resolve(sources.vaultRoot, this.settings.preambleOverride);
+      if (settings.engineOverride) recipeOverrides.engine = settings.engineOverride;
+      if (settings.preambleOverride) recipeOverrides.preamble = path.resolve(sources.vaultRoot, settings.preambleOverride);
+      const bib = verifiedPanelBibliography(settings.bibliographyFiles, sources.vaultRoot);
+      if (bib.length) {
+        if (!['bibtex', 'biblatex'].includes(settings.bibliographyMode)) throw new Error('Choose BibTeX or biblatex for panel bibliography files');
+        recipeOverrides.bib = bib;
+        recipeOverrides.bibliography = settings.bibliographyMode;
+      }
       return { outputRoot: path.join(sources.vaultRoot, folder), recipeOverrides,
-        execution: { latexmk: this.settings.latexmkCommand, timeoutMs },
-        nodeCommand: this.settings.nodeCommand, cliPath: path.resolve(__dirname, '../../scripts/workshop.cjs') };
+        execution: { latexmk: settings.latexmkCommand, timeoutMs },
+        nodeCommand: settings.nodeCommand, cliPath: path.resolve(__dirname, '../../scripts/workshop.cjs') };
     },
     /** Convert action errors to a notice; diagnostics remain in controller state and retained logs. */
     async perform(action) {
@@ -195,6 +242,25 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       this.settings.autoBuildEnabled = Boolean(value);
       this.scheduler.configure({ enabled: value });
       await this.perform(() => plugin.saveData(this.settings));
+    },
+    /** Persist verified vault-local bibliography fallbacks; note YAML retains higher priority. */
+    async setBibliography(value, mode) {
+      if (this.scheduler.running || this.scheduler.held) throw new Error('Wait for the running operation before changing bibliography defaults');
+      const prior = { files: this.settings.bibliographyFiles, mode: this.settings.bibliographyMode };
+      const candidate = { ...this.settings, bibliographyFiles: value, bibliographyMode: mode };
+      this.configuration(candidate);
+      if (this.scheduler.running || this.scheduler.held) throw new Error('A build started while checking bibliography defaults; retry after it finishes');
+      this.scheduler.held = true; this.scheduler.notify();
+      try {
+        this.settings.bibliographyFiles = value;
+        this.settings.bibliographyMode = mode;
+        await plugin.saveData(this.settings);
+        if (this.controller.target) this.controller.invalidate(this.controller.target);
+      } catch (error) {
+        this.settings.bibliographyFiles = prior.files;
+        this.settings.bibliographyMode = prior.mode;
+        throw error;
+      } finally { this.scheduler.held = false; this.scheduler.notify(); this.scheduler.drain(); }
     },
     /** Set the shared sidecar through the CLI; a blank or existing unmanaged path is refused. */
     async setLinkedTarget(value) {
@@ -356,4 +422,4 @@ function settingsClass(api, runtime) {
   };
 }
 
-module.exports = { createRuntime, defaults, insertLabelMetadata, labelMetadata };
+module.exports = { createRuntime, defaults, insertLabelMetadata, labelMetadata, resolvePanelBibliography };
