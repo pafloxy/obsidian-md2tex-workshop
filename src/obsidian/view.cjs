@@ -4,6 +4,158 @@
  */
 const { OutputTabs } = require('./output-tabs.cjs');
 
+const patchContextLines = 3;
+const patchChangedLineLimit = 400;
+const patchChangedByteLimit = 128 * 1024;
+
+/** Split exact text into patch lines while retaining whether its final line is terminated. Usage: splitPatchText('one\n') -> { lines: ['one'], finalNewline: true }. */
+function splitPatchText(text) {
+  const value = String(text);
+  const finalNewline = value.endsWith('\n');
+  const lines = value ? value.split('\n') : [];
+  if (finalNewline) lines.pop();
+  return { lines, finalNewline };
+}
+
+/** Reconstruct one shortest line edit script from a Myers trace. Usage: backtrackLineEdits(trace, ['a'], ['b']) returns delete/add edits. */
+function backtrackLineEdits(trace, before, after) {
+  let x = before.length;
+  let y = after.length;
+  const edits = [];
+  for (let depth = trace.length - 1; depth >= 0; depth--) {
+    const frontier = trace[depth];
+    const diagonal = x - y;
+    const left = frontier.get(diagonal - 1);
+    const right = frontier.get(diagonal + 1);
+    const previousDiagonal = diagonal === -depth || (diagonal !== depth && (left ?? -Infinity) < (right ?? -Infinity)) ? diagonal + 1 : diagonal - 1;
+    const previousX = frontier.get(previousDiagonal) ?? 0;
+    const previousY = previousX - previousDiagonal;
+    while (x > previousX && y > previousY) {
+      edits.push({ kind: 'context', text: before[x - 1] });
+      x--; y--;
+    }
+    if (depth === 0) break;
+    if (x === previousX) {
+      edits.push({ kind: 'add', text: after[y - 1] });
+      y--;
+    } else {
+      edits.push({ kind: 'delete', text: before[x - 1] });
+      x--;
+    }
+  }
+  return edits.reverse();
+}
+
+/** Produce a shortest line edit script with bounded work. Usage: lineEdits(['old'], ['new']) returns one deletion and one addition. */
+function lineEdits(before, after) {
+  if (!before.length) return after.map(text => ({ kind: 'add', text }));
+  if (!after.length) return before.map(text => ({ kind: 'delete', text }));
+  const frontier = new Map([[1, 0]]);
+  const trace = [];
+  const maximum = before.length + after.length;
+  for (let depth = 0; depth <= maximum; depth++) {
+    trace.push(new Map(frontier));
+    for (let diagonal = -depth; diagonal <= depth; diagonal += 2) {
+      const left = frontier.get(diagonal - 1);
+      const right = frontier.get(diagonal + 1);
+      let x = diagonal === -depth || (diagonal !== depth && (left ?? -Infinity) < (right ?? -Infinity)) ? right ?? 0 : (left ?? 0) + 1;
+      let y = x - diagonal;
+      while (x < before.length && y < after.length && before[x] === after[y]) { x++; y++; }
+      frontier.set(diagonal, x);
+      if (x >= before.length && y >= after.length) return backtrackLineEdits(trace, before, after);
+    }
+  }
+  throw new Error('Unable to construct the Markdown review diff');
+}
+
+/** Format one unified-diff range. Usage: patchRange(4, 1) -> '4'; patchRange(4, 3) -> '4,3'. */
+function patchRange(start, count) { return count === 1 ? String(start) : `${start},${count}`; }
+
+/** Create display-only unified patch lines without changing either sealed source. Usage: createUnifiedDiff('old\n', 'new\n').lines renders a standard one-hunk patch. */
+function createUnifiedDiff(current, candidate, { context = patchContextLines } = {}) {
+  const oldText = splitPatchText(current);
+  const newText = splitPatchText(candidate);
+  const lines = [
+    { kind: 'diff-header', text: 'diff --git a/current.md b/proposed.md' },
+    { kind: 'header-delete', text: '--- a/current.md' },
+    { kind: 'header-add', text: '+++ b/proposed.md' },
+  ];
+  let prefix = 0;
+  while (prefix < oldText.lines.length && prefix < newText.lines.length && oldText.lines[prefix] === newText.lines[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < oldText.lines.length - prefix && suffix < newText.lines.length - prefix && oldText.lines[oldText.lines.length - suffix - 1] === newText.lines[newText.lines.length - suffix - 1]) suffix++;
+  const beforeChanged = oldText.lines.slice(prefix, oldText.lines.length - suffix);
+  const afterChanged = newText.lines.slice(prefix, newText.lines.length - suffix);
+  const newlineOnly = !beforeChanged.length && !afterChanged.length && oldText.finalNewline !== newText.finalNewline && oldText.lines.length > 0;
+  const changedLines = beforeChanged.length + afterChanged.length;
+  const changedBytes = Buffer.byteLength(beforeChanged.join('\n'), 'utf8') + Buffer.byteLength(afterChanged.join('\n'), 'utf8');
+  if (!newlineOnly && (changedLines > patchChangedLineLimit || changedBytes > patchChangedByteLimit)) {
+    lines.push({ kind: 'meta', text: ` Patch too large to display safely (${beforeChanged.length} removed, ${afterChanged.length} added lines).` });
+    return { changed: true, tooLarge: true, summary: { removedLines: beforeChanged.length, addedLines: afterChanged.length, changedBytes }, lines };
+  }
+  let edits;
+  if (newlineOnly) {
+    const last = oldText.lines.length - 1;
+    edits = [
+      ...oldText.lines.slice(0, last).map(text => ({ kind: 'context', text })),
+      { kind: 'delete', text: oldText.lines[last] },
+      { kind: 'add', text: newText.lines[last] },
+    ];
+  } else {
+    edits = [
+      ...oldText.lines.slice(0, prefix).map(text => ({ kind: 'context', text })),
+      ...lineEdits(beforeChanged, afterChanged),
+      ...oldText.lines.slice(oldText.lines.length - suffix).map(text => ({ kind: 'context', text })),
+    ];
+  }
+  let oldLine = 1;
+  let newLine = 1;
+  for (const edit of edits) {
+    edit.oldLine = oldLine;
+    edit.newLine = newLine;
+    if (edit.kind !== 'add') oldLine++;
+    if (edit.kind !== 'delete') newLine++;
+  }
+  const changed = edits.some(edit => edit.kind !== 'context') || oldText.finalNewline !== newText.finalNewline;
+  if (!changed) {
+    lines.push({ kind: 'meta', text: ' No Markdown changes.' });
+    return { changed, tooLarge: false, lines };
+  }
+  const changedIndexes = edits.map((edit, index) => edit.kind === 'context' ? -1 : index).filter(index => index >= 0);
+  if (!changedIndexes.length) changedIndexes.push(Math.max(0, edits.length - 1));
+  const ranges = [];
+  for (const index of changedIndexes) {
+    const start = Math.max(0, index - context);
+    const end = Math.min(edits.length, index + context + 1);
+    const previous = ranges.at(-1);
+    if (previous && start <= previous.end) previous.end = Math.max(previous.end, end);
+    else ranges.push({ start, end });
+  }
+  for (const range of ranges) {
+    const hunk = edits.slice(range.start, range.end);
+    const oldCount = hunk.filter(edit => edit.kind !== 'add').length;
+    const newCount = hunk.filter(edit => edit.kind !== 'delete').length;
+    const first = hunk[0] || { oldLine: 1, newLine: 1 };
+    const oldStart = oldCount ? first.oldLine : Math.max(0, first.oldLine - 1);
+    const newStart = newCount ? first.newLine : Math.max(0, first.newLine - 1);
+    lines.push({ kind: 'hunk', text: `@@ -${patchRange(oldStart, oldCount)} +${patchRange(newStart, newCount)} @@` });
+    for (const edit of hunk) {
+      const prefixCharacter = edit.kind === 'add' ? '+' : edit.kind === 'delete' ? '-' : ' ';
+      lines.push({ kind: edit.kind, text: prefixCharacter + edit.text });
+      const oldMissing = edit.kind !== 'add' && edit.oldLine === oldText.lines.length && !oldText.finalNewline;
+      const newMissing = edit.kind !== 'delete' && edit.newLine === newText.lines.length && !newText.finalNewline;
+      if (oldMissing || newMissing) lines.push({ kind: 'meta', text: '\\ No newline at end of file' });
+    }
+  }
+  return { changed, tooLarge: false, lines };
+}
+
+/** Render patch lines as inert text spans whose prefixes remain meaningful without color. Usage: renderUnifiedDiff(pre, createUnifiedDiff(old, next)). */
+function renderUnifiedDiff(parent, diff) {
+  parent.empty();
+  for (const line of diff.lines) parent.createEl('span', { cls: `md2tex-workshop-patch-line md2tex-workshop-patch-${line.kind}`, text: line.text + '\n' });
+}
+
 /** Create a view class without importing Obsidian into the compiler or Node worker. */
 function createViewClass(api, runtime) {
   /** Present controller state; compilation and source ownership remain in their modules. */
@@ -185,16 +337,29 @@ function createReviewClass(api, runtime) {
     /** Render the currently bound immutable review and its matching Apply closure. */
     render() {
       this.contentEl.empty();
+      this.contentEl.addClass('md2tex-workshop-review');
       this.contentEl.createEl('h3', { text: 'TeX changes — review before applying' });
       if (!this.review) { this.contentEl.createEl('p', { text: 'Create a fresh preview from the Workshop to restore this review.' }); return; }
       this.contentEl.createEl('p', { text: `Source: ${this.review.source}` });
       this.contentEl.createEl('p', { text: 'The source is unchanged. Applying will recheck the note, TeX, checkpoint, candidate and preview before saving.' });
       this.contentEl.createEl('p', { text: `Preview report: ${this.review.report}` });
-      this.contentEl.createEl('h4', { text: 'Current Markdown' });
-      this.currentEl = this.contentEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.current });
-      this.contentEl.createEl('h4', { text: 'Proposed Markdown' });
-      this.candidateEl = this.contentEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.candidate });
-      this.applyButton = this.contentEl.createEl('button', { text: 'Apply to Markdown' });
+      this.contentEl.createEl('h4', { text: 'Markdown patch' });
+      this.patchEl = this.contentEl.createEl('pre', { cls: 'md2tex-workshop-patch' });
+      this.patchEl.setAttribute('aria-label', 'Unified Markdown patch. Deleted lines start with minus; added lines start with plus.');
+      const diff = createUnifiedDiff(this.review.current, this.review.candidate);
+      renderUnifiedDiff(this.patchEl, diff);
+      if (diff.tooLarge) {
+        this.largeChangeEl = this.contentEl.createEl('p', { cls: 'md2tex-workshop-large-change', text: 'This TeX rewrite changes too much Markdown for a responsive patch preview. The full documents are not rendered here. Overwrite remains guarded by the sealed preview, freshness checks, backup, save readback, and linked-state finalization.' });
+      } else {
+        this.fullEl = this.contentEl.createEl('details', { cls: 'md2tex-workshop-review-full' });
+        this.fullEl.createEl('summary', { text: 'Full current and proposed Markdown' });
+        this.fullEl.createEl('h4', { text: 'Current Markdown' });
+        this.currentEl = this.fullEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.current });
+        this.fullEl.createEl('h4', { text: 'Proposed Markdown' });
+        this.candidateEl = this.fullEl.createEl('pre', { cls: 'md2tex-workshop-diagnostics', text: this.review.candidate });
+      }
+      this.applyButton = this.contentEl.createEl('button', { cls: diff.tooLarge ? 'md2tex-workshop-danger-action' : '', text: diff.tooLarge ? 'Overwrite Markdown with proposed version' : 'Apply to Markdown' });
+      if (diff.tooLarge) this.applyButton.setAttribute('aria-label', 'Overwrite Markdown with the sealed proposed version after guarded safety checks');
       this.applyStatusEl = this.contentEl.createDiv({ cls: 'md2tex-workshop-status' });
       this.applyStatusEl.setAttribute('role', 'status');
       this.applyButton.addEventListener('click', async () => {
@@ -213,4 +378,4 @@ function createReviewClass(api, runtime) {
   };
 }
 
-module.exports = { createViewClass, createReviewClass };
+module.exports = { createViewClass, createReviewClass, createUnifiedDiff };
