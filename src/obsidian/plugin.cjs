@@ -53,6 +53,8 @@ function verifiedPanelBibliography(value, vaultRoot) {
   const files = resolvePanelBibliography(value, vaultRoot);
   if (!files.length) return files;
   const realVault = fsSync.realpathSync(vaultRoot);
+  const verified = [];
+  const seen = new Set();
   for (const filename of files) {
     let stat;
     try { stat = fsSync.statSync(filename); }
@@ -61,8 +63,9 @@ function verifiedPanelBibliography(value, vaultRoot) {
     const realFile = fsSync.realpathSync(filename);
     const relative = path.relative(realVault, realFile);
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Bibliography resolves outside this vault: ${filename}`);
+    if (!seen.has(realFile)) { seen.add(realFile); verified.push(realFile); }
   }
-  return files;
+  return verified;
 }
 
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */

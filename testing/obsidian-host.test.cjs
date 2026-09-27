@@ -226,6 +226,7 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
   const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/panel-bibliography-'));
   await fs.mkdir(path.join(vaultRoot, 'references'));
   await fs.writeFile(path.join(vaultRoot, 'references/main.bib'), '@book{sample, title={Panel bibliography}}\n');
+  await fs.symlink('main.bib', path.join(vaultRoot, 'references/selected.bib'));
   assert.deepEqual(resolvePanelBibliography('references/main.bib\nreferences/main.bib', vaultRoot), [path.join(vaultRoot, 'references/main.bib')]);
   for (const invalid of ['../outside.bib', '/tmp/outside.bib', '.obsidian/private.bib', 'references/notes.tex']) {
     assert.throws(() => resolvePanelBibliography(invalid, vaultRoot), /vault-relative \.bib/);
@@ -241,17 +242,17 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
     await runtime.openView();
     const view = value.app.workspace.getLeavesOfType('md2tex-workshop-view')[0].view;
     assert.match(view.bibStatusEl.text, /No panel bibliography fallback/);
-    view.bibInput.value = 'references/main.bib';
+    view.bibInput.value = 'references/selected.bib';
     view.bibMode.value = 'bibtex';
     await view.saveBibButton.events.click();
     assert.equal(plugin.saves, 1);
-    assert.deepEqual(runtime.configuration().recipeOverrides, { bib: [path.join(vaultRoot, 'references/main.bib')], bibliography: 'bibtex' });
+    assert.deepEqual(runtime.configuration().recipeOverrides, { bib: [path.join(vaultRoot, 'references/main.bib')], bibliography: 'bibtex' }, 'the build receives the canonical verified file, not a later-replaceable alias');
     assert.match(view.bibStatusEl.text, /1 \.bib file/);
     await assert.rejects(() => runtime.setBibliography('references/missing.bib', 'bibtex'), /Bibliography file is unavailable/);
-    assert.equal(runtime.settings.bibliographyFiles, 'references/main.bib', 'a failed update restores the last valid setting');
+    assert.equal(runtime.settings.bibliographyFiles, 'references/selected.bib', 'a failed update restores the last valid setting');
     let finishSave;
     plugin.saveData = async () => new Promise(resolve => { finishSave = resolve; });
-    const update = runtime.setBibliography('references/main.bib', 'bibtex');
+    const update = runtime.setBibliography('references/selected.bib', 'bibtex');
     await until(() => runtime.scheduler.held && finishSave);
     const build = runtime.build();
     assert.equal(runtime.scheduler.running, null, 'the build remains queued until the bibliography transaction finishes');
@@ -263,8 +264,8 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
     assert.match(pdf.stdout, /Panel bibliography/);
     const outside = path.join(root, 'tmp', `outside-${path.basename(vaultRoot)}.bib`);
     await fs.writeFile(outside, '@book{outside, title={Outside vault}}\n');
-    await fs.rename(path.join(vaultRoot, 'references/main.bib'), path.join(vaultRoot, 'references/main.saved.bib'));
-    await fs.symlink(outside, path.join(vaultRoot, 'references/main.bib'));
+    await fs.rename(path.join(vaultRoot, 'references/selected.bib'), path.join(vaultRoot, 'references/selected.saved.bib'));
+    await fs.symlink(outside, path.join(vaultRoot, 'references/selected.bib'));
     assert.throws(() => runtime.configuration(), /resolves outside this vault/, 'every build-time configuration rechecks symlink containment');
   } finally { runtime.dispose(); }
 });
