@@ -75,7 +75,7 @@ Put a blank line between adjacent callouts and keep every line inside a callout 
 | `[ref{id}]`, `\cref{id}`, `\Cref{id}`, `\ref{id}`, `\eqref{id}` | Checked against the complete set of syntactically declared document labels. Forward and backward references behave equally. |
 | `[cite{key}]`, raw TeX citations | Preserved citations. Empty/invalid simple keys fail early; actual bibliography resolution is checked through TeX/BibTeX and the final log. Declare files as described in the CLI guide. |
 | `[printbibliography]` | One command on its own top-level line places the bibliography. Requires enabled YAML/control resources. Without the command, resources print at the end. Code/comments retain literal examples. |
-| `[caption](https://...)`, HTTP/mailto variants, `[caption](#explicit-id)` | Caption and destination retained as hyperlinks without fetching them. URLs must be appropriately percent-encoded. |
+| `[caption](https://...)`, HTTP/mailto variants, `[caption](#explicit-id)` | Caption and destination retained as hyperlinks without fetching them. Canonical generated `\href` and `\hyperref` commands recover to these editable Markdown forms; unsafe or ambiguous TeX remains an exact raw island. URLs must be appropriately percent-encoded. |
 | `[todo{...}]` | Visible bold annotation with parsed math/formatting inside it. No extra package or `\todo` definition required. |
 | `<!-- ... -->`, `%% ... %%` | Comments excluded from export and declaration checks, with source lines retained. A whole-line label comment in its defined ownership position declares a target. Code/raw TeX regions keep their own literal/comment rules. |
 
