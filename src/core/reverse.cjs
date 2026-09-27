@@ -125,6 +125,21 @@ function groupEnd(text, start) {
   return -1;
 }
 
+/** Recover only the escaped URL form emitted by the forward Markdown renderer. */
+function inverseLinkTarget(value) {
+  let target = '';
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] !== '\\') { target += value[i]; continue; }
+    if (!['%', '#', '&', '_'].includes(value[i + 1])) return null;
+    target += value[++i];
+  }
+  if (/[\\{}\s<>]/.test(target)) return null;
+  try {
+    if (!['http:', 'https:', 'mailto:'].includes(new URL(target).protocol)) return null;
+  } catch { return null; }
+  return target;
+}
+
 /** Translate only known inline wrappers, protecting math and unknown macro arguments. */
 function inverseInline(text, depth = 0) {
   if (depth > 48) return null;
@@ -146,6 +161,28 @@ function inverseInline(text, depth = 0) {
       output += name === '$' ? '\\$' : name; i += command[0].length; continue;
     }
     let end = i + command[0].length;
+    if (name === 'href' && text[end] === '{') {
+      const targetEnd = groupEnd(text, end);
+      if (targetEnd < 0 || text[targetEnd] !== '{') return null;
+      const captionEnd = groupEnd(text, targetEnd);
+      if (captionEnd < 0) return null;
+      const target = inverseLinkTarget(text.slice(end + 1, targetEnd - 1));
+      const caption = inverseInline(text.slice(targetEnd + 1, captionEnd - 1), depth + 1);
+      if (target === null || caption === null) return null;
+      output += `[${caption}](${target})`;
+      i = captionEnd; continue;
+    }
+    if (name === 'hyperref' && text[end] === '[') {
+      const labelEnd = groupEnd(text, end);
+      if (labelEnd < 0 || text[labelEnd] !== '{') return null;
+      const captionEnd = groupEnd(text, labelEnd);
+      if (captionEnd < 0) return null;
+      const label = text.slice(end + 1, labelEnd - 1);
+      const caption = inverseInline(text.slice(labelEnd + 1, captionEnd - 1), depth + 1);
+      if (!/^[a-zA-Z0-9:._/-]+$/.test(label) || caption === null) return null;
+      output += `[${caption}](#${label})`;
+      i = captionEnd; continue;
+    }
     if (['textbf', 'emph', 'cref', 'cite'].includes(name) && text[end] === '{') {
       const closing = groupEnd(text, end);
       if (closing < 0) return null;

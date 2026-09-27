@@ -157,6 +157,30 @@ test('new generated TeX returns to canonical commands and numbered equation call
   assert.doesNotMatch(result.markdown, /\\label|add-ref|add-cite|\[!lemma\|/);
 });
 
+test('canonical TeX hyperlinks recover as editable Markdown links', () => {
+  const tex = 'Read \\href{https://example.org/a\\_(b)?q=50\\%25\\&key=file\\_name\\#part}{\\textbf{Research} \\& data}.\n' +
+    'Return to \\hyperref[sec:results]{this section}.\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.equal(result.markdown, 'Read [**Research** & data](https://example.org/a_(b)?q=50%25&key=file_name#part).\n' +
+    'Return to [this section](#sec:results).\n\n');
+  assert.equal(render(result.markdown), tex);
+});
+
+test('ambiguous or unsafe TeX hyperlinks remain lossless raw TeX', () => {
+  const cases = [
+    'Read \\href{file:///tmp/private}{local}.\n\n',
+    'Read \\href{https://example.org/has\\newline}{unknown escape}.\n\n',
+    'Read \\hyperref[bad label]{local}.\n\n',
+    'Read \\href{https://example.org}{comment% hidden\ntext}.\n\n',
+  ];
+  for (const tex of cases) {
+    const result = recover('', '', tex);
+    assert.equal(result.method, 'raw-tex');
+    assert.equal(render(result.markdown), tex);
+  }
+});
+
 test('simultaneous title, label, formula and reference edits regenerate exactly', () => {
   const source = '> [!lemma] Old title\n> <!-- [label{lem:old}] -->\n> See [ref{lem:old}]: $x^2$.\n';
   const before = render(source);
