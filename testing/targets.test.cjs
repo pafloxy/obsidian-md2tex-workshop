@@ -133,6 +133,25 @@ test('a linked target round trips native equations and hybrid structured blocks 
   for (const block of [equation, figure, table]) assert.ok(finalTex.includes(block));
 });
 
+test('a linked target recovers a canonical table as an editable Markdown grid', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  assert.equal((await buildLinked(value)).target.status, 'success');
+  const table = '\\begin{table}[h]\n\\centering\n\\begin{tabular}{|l|r|}\n\\hline\nQuantity & Meaning \\\\\n\\hline\n$g_*(A)$ & Editable \\\\\n\\hline\n\\end{tabular}\n\\caption{Native table.}\n\\label{tab:native-table}\n\\end{table}\n';
+  await fs.writeFile(value.target, (await fs.readFile(value.target, 'utf8')).replace('The first paragraph is editable.\n', table));
+  const preview = await previewTarget(value);
+  assert.equal(preview.status, 'success', JSON.stringify(preview));
+  const candidate = await fs.readFile(preview.artifacts.candidate, 'utf8');
+  assert.match(candidate, /> \| Quantity \| Meaning \|/);
+  assert.doesNotMatch(candidate, /tex-slot|\{=latex\}/);
+  assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');
+  await fs.writeFile(value.input, (await fs.readFile(value.input, 'utf8')).replace('Editable', 'Updated'));
+  const rebuilt = await buildLinked(value);
+  assert.equal(rebuilt.target.status, 'success', JSON.stringify(rebuilt));
+  assert.equal((await targetStatus(value)).slotCount, 0);
+  assert.match(await fs.readFile(value.target, 'utf8'), /\$g_\*\(A\)\$ & Updated/);
+});
+
 test('a linked target refuses missing or duplicate TeX-owned pointers before publication', async () => {
   const value = await fixture();
   await setTarget(value);

@@ -70,6 +70,7 @@ Put a blank line between adjacent callouts and keep every line inside a callout 
 | Space-indented ordered/unordered lists and explicit `>` quotes | Nested TeX containers. Ordered lists start at the first supplied number, then number consecutively. Use explicit indentation; lazy continuation and tab-based layouts are not fully supported. |
 | Theorem/lemma/definition/proposition/corollary/example/remark/property/proof callouts | Named environments with optional titles. Abbreviations `thm`, `lem`, `def`, `prop`, `cor`, `ex`, `rem` work; `note` maps to `remark`. Nested and adjacent explicitly quoted callouts are supported. |
 | `[!equation]` callout | One nonempty display, optionally preceded by one label declaration. Numbered even without a label. No title or body prose; use `aligned` or `split` inside its math for several rows sharing one number. |
+| `[!table|h]` callout with a hidden label and pipe grid | Emits a centered, bordered `tabular` with deterministic `\hline` placement. Alignment markers map to `l`, `c`, and `r`; prose, inline math, simple emphasis, code, links, references, citations, and TODOs are accepted in cells. Every row must start and end with `|` and have the same number of cells. Pipes inside cells, spanning, custom column specifications, multiline cells, and raw TeX are outside the native subset; use the hybrid `{=latex}` body instead. |
 | Other callout types | Unnumbered titled quotations with a `GENERIC_CALLOUT` warning. No invented custom theorem environment. Algorithm callouts do not gain pseudocode semantics. |
 | `[ref{id}]`, `\cref{id}`, `\Cref{id}`, `\ref{id}`, `\eqref{id}` | Checked against the complete set of syntactically declared document labels. Forward and backward references behave equally. |
 | `[cite{key}]`, raw TeX citations | Preserved citations. Empty/invalid simple keys fail early; actual bibliography resolution is checked through TeX/BibTeX and the final log. Declare files as described in the CLI guide. |
@@ -88,7 +89,7 @@ Matching redundant IDs on one heading/callout collapse to one emitted label. Dif
 
 ## Existing files and round trips
 
-The local structural converter uses this syntax directly, without a frontmatter dialect switch. New structural reverse conversions emit native titles, hidden label comments, bracket-curly commands, and complete top-level `align`/`align*` environments inside display-math delimiters. Unchanged checkout blocks retain their exact source bytes. Supported TeX edits are accepted only after exact regeneration; complex TeX remains an explicit raw fence. Ordinary hidden comments that cannot be safely repositioned stop the preview. See [round-trip editing](roundtrip.md).
+The local structural converter uses this syntax directly, without a frontmatter dialect switch. New structural reverse conversions emit native titles, hidden label comments, bracket-curly commands, complete top-level `align`/`align*` environments inside display-math delimiters, and canonical simple tables as pipe grids inside structured table callouts. Unchanged checkout blocks retain their exact source bytes. Supported TeX edits are accepted only after exact regeneration; complex TeX remains an explicit raw fence. Ordinary hidden comments that cannot be safely repositioned stop the preview. See [round-trip editing](roundtrip.md).
 
 The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw heading/callout label forms remain accepted as small existing input aliases; the new grammar does not depend on them. Callout pipe labels and labels in ordinary Markdown math deliberately fail. Move a single equation's ID to a leading label line inside an equation callout; row-level labels are supported only inside one complete top-level numbered `align` display. No files are automatically migrated, and the separately selected external legacy converter does not support this grammar. Old editing checkpoints keep their converter-hash guard and need their original converter or a fresh checkout after explicit source adaptation.
 
@@ -96,7 +97,7 @@ The older `[add-ref:...]`, `[add-cite:...]`, `[todo:...]`, `label::` and raw hea
 
 - Images and Obsidian embeds await M3 asset resolution. They fail with their
   source line; missing figures cannot masquerade as successfully exported text.
-- Wiki-links, relative note/file links, reference-style links, Markdown tables,
+- Wiki-links, relative note/file links, reference-style links, ordinary Markdown tables outside a structured table callout,
   HTML other than comments, Markdown footnotes, indented code, and setext/underlined headings have
   explicit unsupported diagnostics. Use a supported representation or retain
   the source for an extension; there is no automatic migration.

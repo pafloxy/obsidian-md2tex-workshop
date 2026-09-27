@@ -232,6 +232,31 @@ test('a corpus-style table exposes caption and label while preserving complex ta
   assert.equal(render(result.markdown), tex);
 });
 
+test('a canonical table callout renders an editable Markdown grid to deterministic TeX', () => {
+  const source = '> [!table|h] Editable quantities.\n> <!-- [label{tab:quantities}] -->\n>\n> | Quantity | Meaning |\n> | :--- | ---: |\n> | $g_*(A)$ | Gradient score |\n';
+  const tex = '\\begin{table}[h]\n\\centering\n\\begin{tabular}{|l|r|}\n\\hline\nQuantity & Meaning \\\\\n\\hline\n$g_*(A)$ & Gradient score \\\\\n\\hline\n\\end{tabular}\n\\caption{Editable quantities.}\n\\label{tab:quantities}\n\\end{table}\n\n';
+  valid(source);
+  assert.equal(render(source), tex);
+});
+
+test('canonical TeX tables recover as editable Markdown grids and retain cell edits', () => {
+  const tex = '\\begin{table}[h]\n\\centering\n\\begin{tabular}{|l|c|r|}\n\\hline\nSource & Status & Count \\\\\n\\hline\nMarkdown & \\textbf{Editable} & 2 \\\\\n\\hline\n\\end{tabular}\n\\caption{Round-trip table.}\n\\label{tab:round-trip}\n\\end{table}\n\n';
+  const result = recover('', '', tex);
+  assert.equal(result.method, 'structural-inverse');
+  assert.match(result.markdown, /> \| Source \| Status \| Count \|/);
+  assert.match(result.markdown, /> \| :--- \| :---: \| ---: \|/);
+  assert.doesNotMatch(result.markdown, /\{=latex\}/);
+  assert.equal(render(result.markdown), tex);
+  assert.match(render(result.markdown.replace('Editable', 'Updated')), /Markdown & \\textbf\{Updated\} & 2/);
+});
+
+test('native table grids reject irregular rows and ambiguous cell pipes', () => {
+  const irregular = '> [!table|h] Invalid.\n> <!-- [label{tab:invalid}] -->\n>\n> | A | B |\n> | --- | --- |\n> | one | two | three |\n';
+  const pipe = '> [!table|h] Invalid.\n> <!-- [label{tab:pipe}] -->\n>\n> | A | B |\n> | --- | --- |\n> | $|x|$ | two |\n';
+  assert.ok(convert(irregular).diagnostics.some(item => item.code === 'TABLE_COLUMN_COUNT'));
+  assert.ok(convert(pipe).diagnostics.some(item => item.code === 'TABLE_AMBIGUOUS_PIPE'));
+});
+
 test('structured figure and table callouts refuse missing TeX bodies', () => {
   const source = '> [!figure|H] Caption\n> <!-- [label{fig:missing}] -->\n> Prose is not an owned graphic body.\n';
   const result = convert(source);

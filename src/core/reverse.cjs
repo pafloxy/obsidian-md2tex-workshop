@@ -79,6 +79,38 @@ function structuredIsland(kind, placement, caption, label, bodyLines) {
   ].map(line => line ? `> ${line}` : '>').join('\n');
 }
 
+/** Recognize only the converter's canonical tabular form and recover editable cells. */
+function inverseCanonicalTable(bodyLines) {
+  if (bodyLines.length < 6 || bodyLines[0] !== '\\centering' || bodyLines.at(-1) !== '\\end{tabular}') return null;
+  const opening = bodyLines[1].match(/^\\begin\{tabular\}\{\|([lcr](?:\|[lcr])*)\|\}$/);
+  if (!opening || bodyLines[2] !== '\\hline') return null;
+  const alignments = opening[1].split('|');
+  const rows = [];
+  for (let i = 3; i < bodyLines.length - 1; i += 2) {
+    const row = bodyLines[i]?.match(/^(.*) \\\\$/);
+    if (!row || bodyLines[i + 1] !== '\\hline') return null;
+    const texCells = row[1].split(' & ');
+    if (texCells.length !== alignments.length) return null;
+    const cells = texCells.map(cell => inverseInline(cell));
+    if (cells.some(cell => cell === null || /[|\n]/.test(cell))) return null;
+    rows.push(cells);
+  }
+  return rows.length ? { alignments, rows } : null;
+}
+
+/** Build one table callout whose cells remain directly editable in Obsidian. */
+function structuredTable(placement, caption, label, table) {
+  const separator = table.alignments.map(alignment => alignment === 'c' ? ':---:' : alignment === 'r' ? '---:' : ':---');
+  return [
+    '[!table|' + placement + '] ' + caption,
+    '<!-- [label{' + label + '}] -->',
+    '',
+    '| ' + table.rows[0].join(' | ') + ' |',
+    '| ' + separator.join(' | ') + ' |',
+    ...table.rows.slice(1).map(row => '| ' + row.join(' | ') + ' |')
+  ].map(line => line ? '> ' + line : '>').join('\n');
+}
+
 /** Read a balanced TeX argument, protecting control symbols and line comments. */
 function groupEnd(text, start) {
   const open = text[start];
@@ -203,7 +235,8 @@ function inverseBlocks(tex, depth = 0) {
       const caption = inverseInline(lines[end - 2].slice(captionStart + 1, captionEnd - 1));
       const bodyLines = lines.slice(i + 1, end - 2);
       if (caption === null || !caption.trim() || !bodyLines.some(line => line.trim())) return null;
-      output.push(structuredIsland(structured[1], structured[2], caption, label[2], bodyLines));
+      const table = structured[1] === 'table' ? inverseCanonicalTable(bodyLines) : null;
+      output.push(table ? structuredTable(structured[2], caption, label[2], table) : structuredIsland(structured[1], structured[2], caption, label[2], bodyLines));
       i = end + 1; continue;
     }
     const equation = lines[i].match(/^\\begin\{(equation\*?|align\*?|alignat\*?|gather\*?|multline\*?|flalign\*?)\}$/);

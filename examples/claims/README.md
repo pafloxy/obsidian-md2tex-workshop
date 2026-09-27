@@ -10,7 +10,7 @@ These notes are the smallest public demonstrations behind the seven claims in th
 | Guarded TeX-to-Markdown recovery | [04-guarded-round-trip.md](04-guarded-round-trip.md) | Edit the named prose sentence in linked TeX, preview the exact Markdown candidate, then apply and rebuild. |
 | Fast hidden-label entry | [05-label-shortcut.md](05-label-shortcut.md) | In Obsidian source mode, invoke the bundled label command, type one identifier, and build this note. |
 | Exact TeX-owned blocks | [06-tex-owned-slot.md](06-tex-owned-slot.md) | Replace the indicated placeholder in linked TeX with the table, preview one stable Markdown pointer, apply, then rebuild. |
-| Native math and hybrid floats | [07-native-structured-roundtrip.md](07-native-structured-roundtrip.md) | Edit visible equation math, captions, and labels while figure/table bodies remain exact TeX islands. |
+| Native math, native simple tables, and hybrid floats | [07-native-structured-roundtrip.md](07-native-structured-roundtrip.md) | Edit visible equation math, a simple table cell, captions, and labels while complex figure/table bodies retain an exact TeX fallback. |
 
 Build all seven notes from the repository root:
 

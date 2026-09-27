@@ -53,11 +53,13 @@ Run from the project root. Use your actual Markdown path and a **new** TeX path 
 
    Unlink archives the binding and retains the TeX, dependencies and history. The old target remains claimed; this version does not provide automatic re-adoption or history deletion. Use a new target for a new binding.
 
-## Native math and hybrid structured recovery
+## Native math, tables, and hybrid structured recovery
 
 A complete top-level `equation`, `equation*`, `align`, or `align*` environment inserted inside one marked TeX block can recover as visible Markdown display math with the environment retained inside `$$` delimiters. Numbered `equation` and `align` blocks may retain `\label{...}` declarations; starred forms remain unnumbered and reject labels. A canonical generated `equation` can still recover as the simpler `[!equation]` callout. Preview accepts every candidate only when rebuilding its Markdown regenerates the edited environment exactly, so this native route preserves alignment tokens, label position, and numbering semantics without creating a TeX-owned slot.
 
-A top-level `figure` or `table` can recover as a hybrid callout when it has a valid placement, a nonempty one-line trailing `\caption{...}`, a trailing `\label{...}` at the same indentation, and a nonempty body before those commands. The caption and label become ordinary editable Markdown; everything between the opening environment and caption remains exact TeX in one quoted `{=latex}` fence. This preserves `\includegraphics`, `minipage`, `tabular`, column specifications, spacing, and other body-level TeX without claiming to translate them.
+A top-level canonical workshop table can recover as an editable Markdown grid when it has a valid placement, a nonempty one-line trailing `\caption{...}`, a trailing `\label{...}`, `\centering`, an `l`/`c`/`r` bordered column specification, deterministic `\hline` placement, and one unambiguous row per line. The alignment row maps back to the column specification, and cell prose, inline math, simple emphasis, code, links, references, citations, and TODOs remain editable. Preview accepts the grid only when rebuilding it reproduces the complete TeX table exactly.
+
+A top-level `figure` or more complex `table` can recover as a hybrid callout when it has a valid placement, a nonempty one-line trailing `\caption{...}`, a trailing `\label{...}` at the same indentation, and a nonempty body before those commands. The caption and label become ordinary editable Markdown; everything between the opening environment and caption remains exact TeX in one quoted `{=latex}` fence. This preserves `\includegraphics`, `minipage`, complex `tabular` column specifications, spacing, and other body-level TeX without claiming to translate them.
 
 ````markdown
 > [!figure|H] Gradient evidence.
@@ -69,7 +71,7 @@ A top-level `figure` or `table` can recover as a hybrid callout when it has a va
 > ```
 ````
 
-Changing the callout title edits the TeX caption, changing the hidden label edits the TeX target ID, and changing the placement after the pipe edits the float placement. The nested fence is intentionally TeX-owned authoring text: keep the caption and label outside it. Multiline captions, missing labels, noncanonical command order, unsupported math environments, and other ambiguous structures fall back to a TeX-owned slot rather than being partially guessed.
+Changing the callout title edits the TeX caption, changing the hidden label edits the TeX target ID, and changing the placement after the pipe edits the float placement. In a native table callout, changing an unambiguous cell edits the matching TeX cell. In a hybrid callout, the nested fence is intentionally TeX-owned authoring text: keep the caption and label outside it. Multiline captions, missing labels, noncanonical command order, pipes inside cells, spanning, custom column specifications, unsupported math environments, and other ambiguous structures retain the hybrid body or fall back to a TeX-owned slot rather than being partially guessed.
 
 ## TeX-owned slots
 

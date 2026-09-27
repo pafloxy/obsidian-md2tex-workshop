@@ -135,14 +135,75 @@ class DocumentParser {
     if (!node.spans.some(span => span.type !== 'text' || span.value.trim())) this.report('STRUCTURED_TEX_CAPTION', `${node.kind} callouts need a caption after the header.`, node.line);
     if (!node.label) this.report('STRUCTURED_TEX_LABEL', `${node.kind} callouts need one leading [label{identifier}] declaration.`, node.line);
     if (!node.placement || !/^[!htbpH]+$/.test(node.placement)) this.report('STRUCTURED_TEX_PLACEMENT', `${node.kind} callouts need a LaTeX placement such as H or ht in the header pipe.`, node.line);
-    if (node.children.length !== 1 || node.children[0].type !== 'raw') {
-      this.report('STRUCTURED_TEX_BODY', `${node.kind} callouts need exactly one {=latex} fence containing the TeX-owned body.`, node.line);
+    const body = node.children.length === 1 ? node.children[0] : null;
+    if (node.environment === 'table' && body?.type === 'table-grid') {
+      node.nativeTable = body;
       return;
     }
-    node.structuredBody = node.children[0];
+    if (body?.type !== 'raw') {
+      this.report('STRUCTURED_TEX_BODY', `${node.kind} callouts need exactly one native Markdown table or {=latex} fence containing the TeX-owned body.`, node.line);
+      return;
+    }
+    node.structuredBody = body;
     if (/(?<!\\)\\(?:caption|label)\s*\{/.test(visibleTex(node.structuredBody.value))) this.report('STRUCTURED_TEX_BODY_METADATA', 'Keep the editable caption and label outside the TeX-owned body.', node.structuredBody.line);
     const last = node.structuredBody.value.split('\n').findLast(line => line.trim());
     node.structuredIndent = last?.match(/^\s*/)?.[0] || '';
+  }
+
+  /** Parse one strict pipe table for deterministic, lossless tabular rendering. */
+  tableGrid(lines) {
+    const content = [...lines];
+    while (content.at(-1) && !content.at(-1).text.trim()) content.pop();
+    if (!content[0]?.text.trim().startsWith('|')) return null;
+    const node = { type: 'table-grid', line: content[0].line, endLine: content.at(-1)?.line || content[0].line, alignments: [], rows: [] };
+    if (content.length < 2) {
+      this.report('TABLE_SEPARATOR', 'Add a Markdown alignment row such as | :--- | ---: | below the table header.', node.line);
+      return node;
+    }
+    /** Split a row only when every pipe is an unambiguous delimiter. */
+    const cells = item => {
+      const text = item.text.trim();
+      if (!text.startsWith('|') || !text.endsWith('|')) {
+        this.report('TABLE_ROW', 'Each native table row must start and end with a pipe.', item.line);
+        return [];
+      }
+      if (/\\\||`[^`]*\|[^`]*`|\$[^$\n]*\|[^$\n]*\$/.test(text)) {
+        this.report('TABLE_AMBIGUOUS_PIPE', 'Pipes inside table cells are not in the lossless subset; keep this table as a TeX body island.', item.line);
+        return [];
+      }
+      return text.slice(1, -1).split('|').map(value => value.trim());
+    };
+    const header = cells(content[0]);
+    const separators = cells(content[1]);
+    if (!header.length || separators.length !== header.length || separators.some(value => !/^:?-{3,}:?$/.test(value))) {
+      this.report('TABLE_SEPARATOR', 'Use one alignment marker per column: ---, :---, ---:, or :---:.', content[1].line);
+      return node;
+    }
+    node.alignments = separators.map(value => value.startsWith(':') && value.endsWith(':') ? 'c' : value.endsWith(':') ? 'r' : 'l');
+    for (const item of [content[0], ...content.slice(2)]) {
+      if (!item.text.trim()) {
+        this.report('TABLE_ROW', 'Blank lines cannot appear inside a native table grid.', item.line);
+        continue;
+      }
+      const values = cells(item);
+      if (values.length !== header.length) this.report('TABLE_COLUMN_COUNT', `Expected ${header.length} cells but found ${values.length}.`, item.line);
+      const parsed = values.slice(0, header.length).map(value => {
+        const spans = this.inline(value, item.line);
+        const stack = [...spans];
+        let unsupported = false;
+        while (stack.length) {
+          const span = stack.pop();
+          if (span.type === 'raw' || span.type === 'comment' || span.type === 'image' || span.type === 'wiki' || (span.type === 'math' && span.display)) unsupported = true;
+          if (span.children) stack.push(...span.children);
+        }
+        if (unsupported) this.report('TABLE_CELL_CONTENT', 'Use prose, inline math, emphasis, code, links, references, citations, or TODOs in native table cells; keep other TeX in a body island.', item.line);
+        this.collectSpans(spans);
+        return { spans, line: item.line };
+      });
+      while (parsed.length < header.length) parsed.push({ spans: [], line: item.line });
+      node.rows.push({ cells: parsed, line: item.line });
+    }
+    return node;
   }
 
   /** Extract explicit TeX declarations/references, ignoring TeX line comments. */
@@ -541,7 +602,8 @@ class DocumentParser {
           this.attachLabel(node, declarations);
           this.collectSpans(node.spans);
         }
-        node.children = this.blocks(quoted, depth + 1);
+        const table = node.environment === 'table' ? this.tableGrid(quoted) : null;
+        node.children = table ? [table] : this.blocks(quoted, depth + 1);
         if (node.environment === 'equation') this.equation(node);
         if (['figure', 'table'].includes(node.environment)) this.structuredTex(node);
         nodes.push(node); continue;
@@ -689,7 +751,16 @@ function renderDocument(nodes) {
       emitInline(`\\${command}{`, node.spans, `}${node.label ? `\\label{${node.label.id}}` : ''}`, node);
     } else if (['figure', 'table'].includes(node.environment)) {
       emit(`\\begin{${node.environment}}[${node.placement}]`, node.line);
-      if (node.structuredBody) emit(node.structuredBody.value, node.structuredBody.line);
+      if (node.nativeTable) {
+        emit('\\centering', node.nativeTable.line);
+        emit(`\\begin{tabular}{|${node.nativeTable.alignments.join('|')}|}`, node.nativeTable.line);
+        emit('\\hline', node.nativeTable.line);
+        for (const row of node.nativeTable.rows) {
+          emit(row.cells.map(cell => inline(cell.spans)).join(' & ') + ' \\\\', row.line);
+          emit('\\hline', row.line);
+        }
+        emit('\\end{tabular}', node.nativeTable.endLine);
+      } else if (node.structuredBody) emit(node.structuredBody.value, node.structuredBody.line);
       emitInline(`${node.structuredIndent || ''}\\caption{`, node.spans, '}', { ...node, endLine: node.line });
       if (node.label) emit(`${node.structuredIndent || ''}\\label{${node.label.id}}`, node.label.line);
       emit(`\\end{${node.environment}}`, node.endLine);
