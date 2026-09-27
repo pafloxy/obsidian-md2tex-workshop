@@ -10,7 +10,7 @@ Markdown note → generated TeX → PDF
       └── reviewed TeX edits ── Preview → Apply
 ```
 
-Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
+Version 0.1.3 is a Linux-first beta candidate. The three-file BRAT package and core native Obsidian workflow are implemented and locally verified; the new review, hyperlink, and bibliography interfaces have packaged-host coverage but still require a fresh native smoke test. Publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
 
 ## Seven claims, seven demos
 
@@ -28,16 +28,16 @@ The [claim-demo index](examples/claims/README.md) gives repository-root commands
 
 ## Install with BRAT
 
-The current [BRAT release workflow](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md) installs `main.js`, `manifest.json`, and `styles.css` from a matching GitHub release. After the `0.1.2` release is published with those three assets:
+The current [BRAT release workflow](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md) installs `main.js`, `manifest.json`, and `styles.css` from a matching GitHub release. After the `0.1.3` release is published with those three assets:
 
 1. In Obsidian, install and enable **BRAT** from **Settings → Community plugins**. Use BRAT 1.1.0 or newer for the release-based workflow.
 2. Open the command palette and run **BRAT: Add a beta plugin for testing**.
 3. Enter `https://github.com/pafloxy/obsidian-md2tex-workshop`.
-4. Track the latest release or freeze the installation to `0.1.2`.
+4. Track the latest release or freeze the installation to `0.1.3`.
 5. Enable **md2tex Workshop** under **Settings → Community plugins**.
 6. Open **md2tex Workshop settings** and set **Node executable** to a standalone Node.js 24 executable visible to Obsidian. Keep `latexmk` or set its absolute path when the GUI does not inherit your shell `PATH`.
 
-BRAT installation requires the matching GitHub release; cloning the repository alone does not make a BRAT-installable beta. The release tag and the `version` inside the released `manifest.json` must both be `0.1.2`.
+BRAT installation requires the matching GitHub release; cloning the repository alone does not make a BRAT-installable beta. The release tag and the `version` inside the released `manifest.json` must both be `0.1.3`.
 
 ## Prerequisites and tested platform
 
@@ -54,7 +54,7 @@ The BRAT loader restores the bundled compiler/runtime beneath the plugin directo
 2. Open the command palette and run **md2tex Workshop: Open md2tex Workshop**.
 3. Select the Markdown note and press **Build**. Automatic builds are off by default.
 4. Keep the note and Workshop pane side by side. The **PDF** tab shows the newest successful PDF; **Compiler log** shows the current attempt. A later failure keeps the previous PDF with a stale-revision message.
-5. Expand **Build and TeX controls** to open the PDF externally, open or copy generated TeX, pin the note, cancel work, or configure a linked TeX target.
+5. Expand **Build and TeX controls** to open the PDF externally, open or copy generated TeX, pin the note, cancel work, configure a linked TeX target, or select vault-local fallback bibliography files.
 
 Builds capture the open editor snapshot without saving or rewriting the note. If multiple editors disagree about the same note, the build refuses rather than choosing one.
 
@@ -66,7 +66,7 @@ Use [04-guarded-round-trip.md](examples/claims/04-guarded-round-trip.md) for the
 2. Build the Markdown note. Workshop publishes an anchored TeX checkpoint to the named target while keeping ordinary build attempts separate.
 3. Edit prose inside the generated marker boundaries in the linked TeX file. Do not change anchors, the document wrapper, or frozen recipe files.
 4. Return to Obsidian and choose **Preview TeX changes**. Workshop validates the checkpoint, compiles the proposed candidate, and opens a native review tab showing the current and proposed Markdown. Preview never writes the note.
-5. Inspect the complete candidate and choose **Apply to Markdown** only if it is correct. With one open Markdown view, Workshop uses one undoable editor transaction, requests a native save, reads the persisted bytes back, and acknowledges the linked target only after the exact candidate hash matches. A closed note uses a guarded vault write; multiple views of the same note are refused.
+5. Inspect the complete candidate and choose **Apply to Markdown** only if it is correct. With one open Markdown view, Workshop uses one undoable editor transaction, requests a native save, reads the persisted bytes back, and acknowledges the linked target only after the exact candidate hash matches. A closed note uses a guarded vault write; multiple views of the same note are refused. When a rewrite exceeds 400 added-and-removed lines or 128 KiB, Workshop omits the full patch and document bodies and instead offers a red **Overwrite Markdown with proposed version** action; this action uses the same sealed candidate, freshness checks, backup, persistence readback, and guarded finalization rather than bypassing them.
 6. Build once more from Markdown. This confirms the recovered edit and creates the checkpoint for the next TeX editing round.
 
 Complete top-level `equation`/`equation*` and `align`/`align*` environments can return as visible Markdown display math. A canonical table produced by the workshop—`l`, `c`, or `r` columns, one row per line, and workshop `\hline` placement—returns as an editable Markdown grid inside an `[!table|placement]` callout; editing a cell updates the linked TeX after the normal Preview and Apply gates. Other canonical `figure` or `table` wrappers still expose their one-line caption and label while preserving the graphic or complex `tabular` body as exact TeX in a nested `{=latex}` fence. For any complex top-level block that cannot be translated safely, a linked preview can instead promote it to `<!-- [tex-slot{slot-...}] -->`. The pointer remains in Markdown while the exact TeX payload is held in the owned target state and regenerated on the next build. Do not delete, copy, invent, or move those pointers: linked builds refuse missing, duplicate, foreign, and reordered IDs before replacing the target.
@@ -75,7 +75,7 @@ The round trip intentionally handles a bounded TeX subset, not arbitrary collabo
 
 ## Authoring subset
 
-Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, complete top-level `equation`/`equation*` and `align`/`align*` displays, theorem-like Obsidian callouts, proof callouts, equation callouts, structured figure/table callouts, safe native table grids, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
+Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, complete top-level `equation`/`equation*` and `align`/`align*` displays, theorem-like Obsidian callouts, proof callouts, equation callouts, structured figure/table callouts, safe native table grids, hidden labels, references, citations, hyperlinks, bibliography placement, and explicit raw-TeX fences. Canonical generated `\href`, `\hyperref`, `\cite`, and `\printbibliography` forms recover into editable Markdown; unsafe, ambiguous, or TeX-specific surrounding syntax remains exact raw TeX. For example:
 
 ```markdown
 # A useful identity
@@ -120,7 +120,7 @@ tex-workshop-bibliography: bibtex
 ---
 ```
 
-These fields contain local paths, not embedded TeX or BibTeX contents. `[printbibliography]` chooses one explicit top-level bibliography position; omitting it keeps automatic end placement. Recipe bytes are frozen into linked checkpoints, so recipe edits require reconciliation and a fresh checkpoint. See [the bibliography example](examples/bibliography/README.md) and [CLI metadata reference](docs/cli.md#note-metadata).
+These fields contain local paths, not embedded TeX or BibTeX contents. `[printbibliography]` chooses one explicit top-level bibliography position; omitting it keeps automatic end placement. The Workshop panel can supply a fallback list of existing vault-local `.bib` files when note YAML does not declare bibliography settings; accepted aliases are resolved to canonical files inside the vault for each build. Existing-manuscript `\bibliographystyle`, `\bibliography`, and `\addbibresource` commands are not translated in this release. Recipe bytes are frozen into linked checkpoints, so recipe edits require reconciliation and a fresh checkpoint. See [the bibliography example](examples/bibliography/README.md) and [CLI metadata reference](docs/cli.md#note-metadata).
 
 ## CLI quick start
 
@@ -156,7 +156,7 @@ Node, TeX, custom converters, raw TeX, and any manually configured agent executa
 
 ## Release and verification status
 
-The v0.1.2 candidate consists of exactly `main.js`, `manifest.json`, and `styles.css`. Packaging restores a hash-verified bundled runtime on first load. Automated checks cover deterministic packaging, relocated loading, runtime tamper refusal, editor snapshot builds, native-write guards, linked targets, round trips, PDF/log state, and CLI behavior. A disposable Linux vault running Obsidian 1.13.7 has exercised package loading, command registration, PDF/log output, the exact Preview → Apply → disk-readback → guarded-finalize path, and the required post-Apply rebuild. The label shortcut has packaged-host coverage; live shortcut delivery in a new native release candidate is verified separately below.
+The v0.1.3 candidate consists of exactly `main.js`, `manifest.json`, and `styles.css`. Packaging restores a hash-verified bundled runtime on first load. Automated checks cover deterministic packaging, relocated loading, runtime tamper refusal, editor snapshot builds, native-write guards, linked targets, bounded reviews, hyperlink and citation recovery, panel bibliography containment, round trips, PDF/log state, and CLI behavior. A disposable Linux vault running Obsidian 1.13.7 previously exercised package loading, command registration, PDF/log output, the exact Preview → Apply → disk-readback → guarded-finalize path, and the required post-Apply rebuild. The new 0.1.3 UI additions have packaged-host coverage only until this exact candidate receives a fresh native smoke test.
 
 These results do not establish behavior on every Obsidian, operating-system, Node, or TeX version. Hosted BRAT download is established only after the matching GitHub release exists and is installed through BRAT; local packaging or direct installation alone does not prove that hosted path.
 

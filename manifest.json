@@ -1,7 +1,7 @@
 {
   "id": "md2tex-workshop",
   "name": "md2tex Workshop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "minAppVersion": "1.7.2",
   "description": "Local Markdown-to-TeX/PDF workshop with side-by-side output and guarded linked-TeX round trips.",
   "author": "Rajarsi",
