@@ -12,7 +12,7 @@ const vm = require('node:vm');
 const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
 const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
-const { createRuntime } = require('../src/obsidian/plugin.cjs');
+const { createRuntime, resolvePanelBibliography } = require('../src/obsidian/plugin.cjs');
 const { createViewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '..');
@@ -221,12 +221,49 @@ test('editor label command inserts the supported comment and targets its identif
   } finally { runtime.dispose(); }
 });
 
+test('panel bibliography defaults accept only verified vault-local bib files', async () => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/panel-bibliography-'));
+  await fs.mkdir(path.join(vaultRoot, 'references'));
+  await fs.writeFile(path.join(vaultRoot, 'references/main.bib'), '@book{sample, title={Panel bibliography}}\n');
+  assert.deepEqual(resolvePanelBibliography('references/main.bib\nreferences/main.bib', vaultRoot), [path.join(vaultRoot, 'references/main.bib')]);
+  for (const invalid of ['../outside.bib', '/tmp/outside.bib', '.obsidian/private.bib', 'references/notes.tex']) {
+    assert.throws(() => resolvePanelBibliography(invalid, vaultRoot), /vault-relative \.bib/);
+  }
+  const value = host(vaultRoot, { nodeCommand: process.execPath });
+  const file = new value.api.TFile('draft.md');
+  const editor = new value.api.MarkdownView(file, 'A citation [cite{sample}].\n\n[printbibliography]\n');
+  value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
+  const plugin = new value.api.Plugin();
+  const runtime = createRuntime(plugin, value.api);
+  try {
+    await runtime.start();
+    await runtime.openView();
+    const view = value.app.workspace.getLeavesOfType('md2tex-workshop-view')[0].view;
+    assert.match(view.bibStatusEl.text, /No panel bibliography fallback/);
+    view.bibInput.value = 'references/main.bib';
+    view.bibMode.value = 'bibtex';
+    await view.saveBibButton.events.click();
+    assert.equal(plugin.saves, 1);
+    assert.deepEqual(runtime.configuration().recipeOverrides, { bib: [path.join(vaultRoot, 'references/main.bib')], bibliography: 'bibtex' });
+    assert.match(view.bibStatusEl.text, /1 \.bib file/);
+    await assert.rejects(() => runtime.setBibliography('references/missing.bib', 'bibtex'), /Bibliography file is unavailable/);
+    assert.equal(runtime.settings.bibliographyFiles, 'references/main.bib', 'a failed update restores the last valid setting');
+    const built = await runtime.build();
+    assert.equal(built.result.status, 'success');
+    assert.equal(built.result.bibliographyPlacement, 'explicit');
+    const pdf = await execute('pdftotext', [built.result.artifacts.pdf, '-'], { cwd: root });
+    assert.match(pdf.stdout, /Panel bibliography/);
+  } finally { runtime.dispose(); }
+});
+
 test('shared explanation pane requires a current failure and discards stale replies', async () => {
   const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
   const first = { status: 'error', diagnostics: [{ severity: 'error', message: 'Unsupported image' }] };
   let state = { target: { path: 'draft.md' }, latest: first, latestCurrent: true };
   let subscriber; let resolveReply; const calls = [];
   const runtime = {
+    settings: {},
     explanationDescription: 'Bundled fake helper only.',
     controller: { state: () => state, subscribe(callback) { subscriber = callback; callback(state); return () => {}; }, async inspect() {}, async refreshTarget() {} },
     async explainFailure(options) { calls.push(options); if (calls.length === 1) return { status: 'refused', code: 'AGENT_CONSENT_REQUIRED' }; if (calls.length === 2) return new Promise(resolve => { resolveReply = resolve; }); return { status: 'success', packetId: '1234567890123456', explanation: { verdict: 'explained', summary: '<plain text>', suggestions: [{ text: 'Replace the image line.' }] } }; },
