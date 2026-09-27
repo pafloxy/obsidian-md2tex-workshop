@@ -13,7 +13,7 @@ const { stagePackage } = require('../scripts/lib/plugin-package.cjs');
 const { stageBratPackage } = require('../scripts/lib/brat-package.cjs');
 const { execute } = require('./execute.cjs');
 const { createRuntime } = require('../src/obsidian/plugin.cjs');
-const { createViewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
+const { createViewClass, createReviewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
 const root = path.resolve(__dirname, '..');
 
@@ -186,9 +186,20 @@ test('review formatter emits git-style colored-line classes without losing exact
   ]);
   const distant = createUnifiedDiff('old\n1\n2\n3\n4\n5\n6\n7\nold again\n', 'new\n1\n2\n3\n4\n5\n6\n7\nnew again\n');
   assert.equal(distant.lines.filter(line => line.kind === 'hunk').length, 2, 'distant edits use separate patch hunks');
-  const newline = createUnifiedDiff('same\n', 'same');
-  assert.equal(newline.changed, true);
-  assert.ok(newline.lines.some(line => line.text === '\\ No newline at end of file'));
+  const removedNewline = createUnifiedDiff('same\n', 'same');
+  assert.equal(removedNewline.changed, true);
+  assert.deepEqual(removedNewline.lines.slice(-3), [
+    { kind: 'delete', text: '-same' },
+    { kind: 'add', text: '+same' },
+    { kind: 'meta', text: '\\ No newline at end of file' },
+  ]);
+  const addedNewline = createUnifiedDiff('same', 'same\n');
+  assert.equal(addedNewline.changed, true);
+  assert.deepEqual(addedNewline.lines.slice(-3), [
+    { kind: 'delete', text: '-same' },
+    { kind: 'meta', text: '\\ No newline at end of file' },
+    { kind: 'add', text: '+same' },
+  ]);
   const unchanged = createUnifiedDiff('same\n', 'same\n');
   assert.equal(unchanged.changed, false);
   assert.equal(unchanged.lines.at(-1).text, ' No Markdown changes.');
@@ -197,8 +208,38 @@ test('review formatter emits git-style colored-line classes without losing exact
   assert.ok(created.lines.some(line => line.kind === 'add' && line.text === '+first line'));
   const manyLines = Array.from({ length: 2500 }, (_, index) => `line ${index}`).join('\n') + '\n';
   const asymmetric = createUnifiedDiff('one line\n', manyLines);
-  assert.ok(asymmetric.lines.some(line => line.kind === 'delete' && line.text === '-one line'));
-  assert.ok(asymmetric.lines.some(line => line.kind === 'add' && line.text === '+line 2499'));
+  assert.equal(asymmetric.tooLarge, true);
+  assert.ok(asymmetric.lines.some(line => line.kind === 'meta' && /too large to display/i.test(line.text)));
+  assert.equal(asymmetric.lines.some(line => ['add', 'delete'].includes(line.kind)), false, 'large rewrites never materialize thousands of patch rows');
+  const atLimit = createUnifiedDiff(
+    Array.from({ length: 200 }, (_, index) => `old ${index}`).join('\n') + '\n',
+    Array.from({ length: 200 }, (_, index) => `new ${index}`).join('\n') + '\n',
+  );
+  assert.equal(atLimit.tooLarge, false, 'the documented 400 changed-line limit still renders');
+  const overLimit = createUnifiedDiff(
+    Array.from({ length: 201 }, (_, index) => `old ${index}`).join('\n') + '\n',
+    Array.from({ length: 200 }, (_, index) => `new ${index}`).join('\n') + '\n',
+  );
+  assert.equal(overLimit.tooLarge, true, 'one line beyond the limit is summarized without diffing');
+});
+
+test('large TeX rewrites offer an explicit guarded Markdown overwrite without rendering either full document', async () => {
+  const value = host(path.join(root, 'tmp/large-review-vault'), {});
+  const current = Array.from({ length: 500 }, (_, index) => `old ${index}`).join('\n') + '\n';
+  const candidate = Array.from({ length: 500 }, (_, index) => `new ${index}`).join('\n') + '\n';
+  const review = { source: '/vault/draft.md', report: '/vault/preview.json', current, candidate };
+  const applied = [];
+  const runtime = { async applyLinked(value) { applied.push(value); } };
+  const Review = createReviewClass(value.api, runtime);
+  const pane = new Review({}, review);
+  await pane.onOpen();
+  assert.equal(pane.fullEl, undefined, 'large source bodies are not duplicated into the review DOM');
+  assert.match(pane.patchEl.children.map(line => line.text).join(''), /too large to display/i);
+  assert.equal(pane.applyButton.text, 'Overwrite Markdown with proposed version');
+  assert.match(pane.applyButton.className, /danger/);
+  await pane.applyButton.events.click();
+  assert.deepEqual(applied, [review], 'large-change overwrite retains the ordinary sealed guarded-apply interface');
+  assert.match(pane.applyStatusEl.text, /Applied and saved/);
 });
 
 test('editor label command inserts the supported comment and targets its identifier', async () => {

@@ -169,3 +169,10 @@
 .md2tex-workshop-patch-meta { color: var(--text-muted); font-style: italic; }
 .md2tex-workshop-review-full { margin: 12px 0; }
 .md2tex-workshop-review-full > summary { cursor: pointer; color: var(--text-muted); }
+.md2tex-workshop-large-change { color: var(--text-error); font-weight: 600; max-width: 72ch; }
+.md2tex-workshop-danger-action {
+  background: var(--background-modifier-error);
+  border-color: var(--text-error);
+  color: var(--text-on-accent);
+}
+.md2tex-workshop-danger-action:hover { background: var(--text-error); }
