@@ -109,6 +109,30 @@ test('a linked target recovers complete align TeX as visible native Markdown mat
   assert.ok((await fs.readFile(value.target, 'utf8')).includes(align));
 });
 
+test('a linked target round trips native equations and hybrid structured blocks without slots', async () => {
+  const value = await fixture();
+  await setTarget(value);
+  assert.equal((await buildLinked(value)).target.status, 'success');
+  const equation = '\\begin{equation}\n    g_*(A)=i\\langle[A,H]\\rangle.\n    \\label{eq:insertion-gradient}\n\\end{equation}\n';
+  const figure = '\\begin{figure}[h]\n    \\centering\n    \\begin{minipage}{0.58\\linewidth}\n        \\centering\n        \\rule{1cm}{1cm}\n    \\end{minipage}\n    \\caption{Gradient evidence.}\n    \\label{fig:gradient-evidence}\n\\end{figure}\n';
+  const table = '\\begin{table}[h]\n\\centering\n\\begin{tabular}{|c c|}\nConstruction & Limitation \\\\\n\\hline\nWarm start & Sector-limited. \\\\\n\\end{tabular}\n\\caption{Reference constructions.}\n\\label{tab:reference-constructions}\n\\end{table}\n';
+  const fragment = `${equation}\n${figure}\n${table}`;
+  await fs.writeFile(value.target, (await fs.readFile(value.target, 'utf8')).replace('The first paragraph is editable.\n', fragment));
+  const preview = await previewTarget(value);
+  assert.equal(preview.status, 'success', JSON.stringify(preview));
+  const candidate = await fs.readFile(preview.artifacts.candidate, 'utf8');
+  assert.match(candidate, /\$\$\n\\begin\{equation\}/);
+  assert.match(candidate, /> \[!figure\|h\] Gradient evidence\./);
+  assert.match(candidate, /> \[!table\|h\] Reference constructions\./);
+  assert.doesNotMatch(candidate, /tex-slot/);
+  assert.equal((await applyTarget({ ...value, preview: preview.artifacts.report })).status, 'success');
+  const rebuilt = await buildLinked(value);
+  assert.equal(rebuilt.target.status, 'success', JSON.stringify(rebuilt));
+  assert.equal((await targetStatus(value)).slotCount, 0);
+  const finalTex = await fs.readFile(value.target, 'utf8');
+  for (const block of [equation, figure, table]) assert.ok(finalTex.includes(block));
+});
+
 test('a linked target refuses missing or duplicate TeX-owned pointers before publication', async () => {
   const value = await fixture();
   await setTarget(value);

@@ -12,7 +12,7 @@ Markdown note → generated TeX → PDF
 
 Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and native Obsidian workflow are implemented and locally verified; publishing the matching GitHub release is a separate release action. The CLI remains available for reproducible builds and diagnostics outside Obsidian.
 
-## Six claims, six demos
+## Seven claims, seven demos
 
 | Main claim | What the plugin does | Runnable Markdown demo |
 | --- | --- | --- |
@@ -22,8 +22,9 @@ Version 0.1.2 is a Linux-first beta candidate. The three-file BRAT package and n
 | **Bring selected TeX edits back without silently overwriting Markdown.** | A persistent linked TeX target uses anchored checkpoints, a read-only Preview, a separate Apply gesture, backups, exact freshness checks, conflict refusal, native editor save, and disk readback before acknowledgement. | [Guarded round trip](examples/claims/04-guarded-round-trip.md) |
 | **Add supported labels without leaving the Markdown editor.** | A command and bundled `Mod+Shift+L` hotkey insert a hidden label comment and place the caret inside the identifier braces. | [Label shortcut](examples/claims/05-label-shortcut.md) |
 | **Keep hand-tuned TeX alive beside editable Markdown.** | A linked target can retain an exact TeX-owned table, figure, or unsupported custom environment behind one stable Markdown pointer; missing, duplicated, foreign, or reordered pointers stop before publication. | [TeX-owned slot](examples/claims/06-tex-owned-slot.md) |
+| **Keep equations and structured floats readable on both sides.** | Complete `equation`/`equation*` and `align`/`align*` blocks return as visible Markdown math; supported figures and tables return as callouts with editable captions and labels around an exact TeX-owned body. | [Native structured round trip](examples/claims/07-native-structured-roundtrip.md) |
 
-The [claim-demo index](examples/claims/README.md) gives repository-root commands for building the six notes.
+The [claim-demo index](examples/claims/README.md) gives repository-root commands for building the seven notes.
 
 ## Install with BRAT
 
@@ -68,13 +69,13 @@ Use [04-guarded-round-trip.md](examples/claims/04-guarded-round-trip.md) for the
 5. Inspect the complete candidate and choose **Apply to Markdown** only if it is correct. With one open Markdown view, Workshop uses one undoable editor transaction, requests a native save, reads the persisted bytes back, and acknowledges the linked target only after the exact candidate hash matches. A closed note uses a guarded vault write; multiple views of the same note are refused.
 6. Build once more from Markdown. This confirms the recovered edit and creates the checkpoint for the next TeX editing round.
 
-For a complex top-level TeX block that cannot be translated safely, a linked preview can promote it to `<!-- [tex-slot{slot-...}] -->`. The pointer remains in Markdown while the exact TeX payload is held in the owned target state and regenerated on the next build. Do not delete, copy, invent, or move those pointers: linked builds refuse missing, duplicate, foreign, and reordered IDs before replacing the target. Explicit `{=latex}` fences remain the Markdown-owned alternative when you want the TeX visible and editable in Markdown.
+Complete top-level `equation`/`equation*` and `align`/`align*` environments can return as visible Markdown display math. A canonical `figure` or `table` with one-line trailing `\caption` and `\label` commands can return as an Obsidian callout: its caption and label are editable Markdown, while the graphic or `tabular` body remains exact TeX in a nested `{=latex}` fence. For any complex top-level block that cannot be translated safely, a linked preview can instead promote it to `<!-- [tex-slot{slot-...}] -->`. The pointer remains in Markdown while the exact TeX payload is held in the owned target state and regenerated on the next build. Do not delete, copy, invent, or move those pointers: linked builds refuse missing, duplicate, foreign, and reordered IDs before replacing the target.
 
 The round trip intentionally handles a bounded TeX subset, not arbitrary collaborator-written LaTeX. Concurrent edits to the same anchored region produce `EDIT_CONFLICT`; changed markers, wrappers, recipes, dependencies, stale previews, and ambiguous inverses are refused with both sources preserved. See [linked targets](docs/linked-tex.md) and [round-trip guarantees](docs/roundtrip.md).
 
 ## Authoring subset
 
-Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, complete top-level `align` and `align*` displays, theorem-like Obsidian callouts, proof callouts, equation callouts, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
+Workshop supports ordinary prose, headings, lists, literal code, inline/display mathematics, complete top-level `equation`/`equation*` and `align`/`align*` displays, theorem-like Obsidian callouts, proof callouts, equation callouts, structured figure/table callouts, hidden labels, references, citations, bibliography placement, and explicit raw-TeX fences. For example:
 
 ```markdown
 # A useful identity
@@ -100,7 +101,7 @@ $$
 See [ref{lem:square}], [ref{eq:square}], and [ref{eq:aligned-pair}].
 ```
 
-Plain `$$` displays remain unnumbered unless they contain exactly one complete top-level `align`; `align*` remains unnumbered. Images, tables, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
+Plain `$$` displays remain unnumbered unless they contain exactly one supported top-level numbered environment; starred environments remain unnumbered. Ordinary Markdown image and table conversion, note transclusion, arbitrary Markdown extensions, arbitrary TeX restructuring, and whole existing-manuscript adoption are not implemented. Hybrid figure/table recovery requires the documented canonical wrapper and keeps its body as TeX; unsupported images produce `UNSUPPORTED_IMAGE` rather than disappearing. Read the complete [authoring contract](docs/authoring.md).
 
 ### Insert a hidden label quickly
 

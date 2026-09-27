@@ -42,6 +42,7 @@
     "examples/claims/04-guarded-round-trip.md",
     "examples/claims/05-label-shortcut.md",
     "examples/claims/06-tex-owned-slot.md",
+    "examples/claims/07-native-structured-roundtrip.md",
     "examples/claims/README.md",
     "examples/quickstart/README.md",
     "examples/quickstart/note.md",

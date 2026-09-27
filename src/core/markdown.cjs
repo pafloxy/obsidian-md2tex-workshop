@@ -27,10 +27,10 @@ function visibleTex(text) {
   }).join('\n');
 }
 
-/** Identify one complete top-level align environment inside display-math delimiters. */
-function topLevelAlign(text) {
+/** Identify one complete top-level native math environment inside display delimiters. */
+function topLevelNativeMath(text) {
   const visible = visibleTex(text).trim();
-  const opening = visible.match(/^\\begin\{(align\*?)\}/);
+  const opening = visible.match(/^\\begin\{(equation\*?|align\*?)\}/);
   if (!opening) return null;
   const stack = [];
   let outerEnd = -1;
@@ -45,6 +45,8 @@ function topLevelAlign(text) {
 const environments = { theorem: 'theorem', thm: 'theorem', lemma: 'lemma', lem: 'lemma', definition: 'definition', def: 'definition', proposition: 'proposition', prop: 'proposition', corollary: 'corollary', cor: 'corollary', example: 'example', ex: 'example', remark: 'remark', rem: 'remark', note: 'remark', property: 'property', proof: 'proof' };
 const validId = /^[a-zA-Z0-9:._/-]+$/;
 environments.equation = 'equation';
+environments.figure = 'figure';
+environments.table = 'table';
 
 /** Parse protected spans before interpreting Markdown punctuation. */
 class DocumentParser {
@@ -128,6 +130,21 @@ class DocumentParser {
     if (/\\(?:begin|end)\{(?:equation\*?|align\*?|alignat\*?|flalign\*?|gather\*?|multline\*?|displaymath)\}/.test(visibleTex(node.math.value))) this.report('NESTED_EQUATION', 'Use aligned or split inside one equation; retain independently numbered environments in a raw TeX fence.', node.math.line);
   }
 
+  /** Validate one editable caption/label wrapped around an exact TeX-owned body. */
+  structuredTex(node) {
+    if (!node.spans.some(span => span.type !== 'text' || span.value.trim())) this.report('STRUCTURED_TEX_CAPTION', `${node.kind} callouts need a caption after the header.`, node.line);
+    if (!node.label) this.report('STRUCTURED_TEX_LABEL', `${node.kind} callouts need one leading [label{identifier}] declaration.`, node.line);
+    if (!node.placement || !/^[!htbpH]+$/.test(node.placement)) this.report('STRUCTURED_TEX_PLACEMENT', `${node.kind} callouts need a LaTeX placement such as H or ht in the header pipe.`, node.line);
+    if (node.children.length !== 1 || node.children[0].type !== 'raw') {
+      this.report('STRUCTURED_TEX_BODY', `${node.kind} callouts need exactly one {=latex} fence containing the TeX-owned body.`, node.line);
+      return;
+    }
+    node.structuredBody = node.children[0];
+    if (/(?<!\\)\\(?:caption|label)\s*\{/.test(visibleTex(node.structuredBody.value))) this.report('STRUCTURED_TEX_BODY_METADATA', 'Keep the editable caption and label outside the TeX-owned body.', node.structuredBody.line);
+    const last = node.structuredBody.value.split('\n').findLast(line => line.trim());
+    node.structuredIndent = last?.match(/^\s*/)?.[0] || '';
+  }
+
   /** Extract explicit TeX declarations/references, ignoring TeX line comments. */
   scanRaw(text, firstLine) {
     for (const [offset, visible] of visibleTex(text).split('\n').entries()) {
@@ -159,9 +176,9 @@ class DocumentParser {
         if (/\[\^[^\]]+\]/.test(span.value)) this.report('UNSUPPORTED_FOOTNOTE', 'Markdown footnotes are not supported yet; raw TeX footnotes remain available.', span.line);
       }
       if (span.type === 'label') this.report('UNSCOPED_LABEL', 'Place a whole-line label immediately below a heading or at the start of a callout body.', span.line);
-      const align = span.type === 'math' && span.display ? topLevelAlign(span.value) : null;
-      if (span.type === 'math' && /(?<!\\)\\label\{/.test(visibleTex(span.value)) && align !== 'align') this.report('LABEL_IN_MATH', 'Move the label outside math, or keep it inside one complete top-level align display where it owns a numbered row.', span.line);
-      if (span.type === 'math' && /\\begin\{(?:equation|align|alignat|flalign|gather|multline)\}/.test(visibleTex(span.value)) && align !== 'align') this.report('NUMBERED_ENVIRONMENT_IN_MATH', 'Use an equation callout for one number; a complete top-level align display is the supported independently numbered form.', span.line);
+      const nativeMath = span.type === 'math' && span.display ? topLevelNativeMath(span.value) : null;
+      if (span.type === 'math' && /(?<!\\)\\label\{/.test(visibleTex(span.value)) && !['align', 'equation'].includes(nativeMath)) this.report('LABEL_IN_MATH', 'Move the label outside math, or keep it inside one complete top-level numbered equation or align display.', span.line);
+      if (span.type === 'math' && /\\begin\{(?:equation|align|alignat|flalign|gather|multline)\}/.test(visibleTex(span.value)) && !['align', 'equation'].includes(nativeMath)) this.report('NUMBERED_ENVIRONMENT_IN_MATH', 'Use one complete top-level equation or align display; retain other independently numbered environments in a TeX-owned slot.', span.line);
       if (span.type === 'math' && /\[(?:(?:label|ref|cite|todo)\{|printbibliography\])/.test(visibleTex(span.value))) this.report('DIRECTIVE_IN_MATH', 'Place authoring commands outside math delimiters.', span.line);
       if (span.type === 'raw' || span.type === 'math') this.scanRaw(span.value, span.line);
       else if (span.type === 'reference' || span.type === 'citation') {
@@ -507,7 +524,8 @@ class DocumentParser {
           node.kind = header[1].toLowerCase();
           if (!node.environment) this.report('GENERIC_CALLOUT', `Callout ${node.kind} is rendered as an unnumbered titled quotation.`, start.line, 'warning');
           node.spans = this.inline(header[3], start.line);
-          if (header[2]) this.report('CALLOUT_METADATA', 'The callout pipe is viewer metadata, not a title or label. Put the title after ] and use a leading <!-- [label{id}] --> line.', start.line);
+          if (['figure', 'table'].includes(node.environment)) node.placement = header[2]?.trim() || '';
+          else if (header[2]) this.report('CALLOUT_METADATA', 'The callout pipe is viewer metadata, not a title or label. Put the title after ] and use a leading <!-- [label{id}] --> line.', start.line);
           const declarations = [];
           for (const span of node.spans) if (span.type === 'raw' && /^\\label\{[^}]+\}$/.test(span.value)) declarations.push({ id: span.value.slice(7, -1), line: span.line });
           node.spans = node.spans.filter(span => !(span.type === 'raw' && /^\\label\{[^}]+\}$/.test(span.value)));
@@ -525,6 +543,7 @@ class DocumentParser {
         }
         node.children = this.blocks(quoted, depth + 1);
         if (node.environment === 'equation') this.equation(node);
+        if (['figure', 'table'].includes(node.environment)) this.structuredTex(node);
         nodes.push(node); continue;
       }
       const listStart = text.match(/^ {0,3}([-+*]|\d+[.)])\s+(.*)$/);
@@ -600,7 +619,7 @@ function renderDocument(nodes) {
       if (span.type === 'citation') return `\\cite{${span.value}}`;
       if (span.type === 'math') {
         if (!span.display) return `$${span.value}$`;
-        if (topLevelAlign(span.value)) return span.value.trim();
+        if (topLevelNativeMath(span.value)) return span.value.trim();
         const outer = visibleTex(span.value).trim().match(/^\\begin\{(align\*?|alignat\*?|flalign\*?|equation\*?|gather\*?|multline\*?|displaymath)\}/);
         if (outer && visibleTex(span.value).trim().endsWith(`\\end{${outer[1]}}`)) return span.value;
         return `\\[${span.value}\\]`;
@@ -616,7 +635,7 @@ function renderDocument(nodes) {
         const tail = span.type === 'todo' ? 2 : 1;
         return [{ text: wrapper.slice(0, -tail), line: span.line }, ...pieces(span.children), { text: wrapper.slice(-tail), line: span.endLine }];
       }
-      const alignOffset = span.type === 'math' && span.display && topLevelAlign(span.value) ? newlines(span.value.match(/^\s*/)[0]) : 0;
+      const alignOffset = span.type === 'math' && span.display && topLevelNativeMath(span.value) ? newlines(span.value.match(/^\s*/)[0]) : 0;
       return [{ text: inline([span]), line: span.line + alignOffset, endLine: span.type === 'code' ? span.endLine : undefined }];
     });
   }
@@ -668,6 +687,12 @@ function renderDocument(nodes) {
     else if (node.type === 'heading') {
       const command = ['section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph', 'subparagraph'][node.level - 1];
       emitInline(`\\${command}{`, node.spans, `}${node.label ? `\\label{${node.label.id}}` : ''}`, node);
+    } else if (['figure', 'table'].includes(node.environment)) {
+      emit(`\\begin{${node.environment}}[${node.placement}]`, node.line);
+      if (node.structuredBody) emit(node.structuredBody.value, node.structuredBody.line);
+      emitInline(`${node.structuredIndent || ''}\\caption{`, node.spans, '}', { ...node, endLine: node.line });
+      if (node.label) emit(`${node.structuredIndent || ''}\\label{${node.label.id}}`, node.label.line);
+      emit(`\\end{${node.environment}}`, node.endLine);
     } else if (node.environment === 'equation') {
       emit('\\begin{equation}', node.line);
       if (node.label) emit(`\\label{${node.label.id}}`, node.label.line);
