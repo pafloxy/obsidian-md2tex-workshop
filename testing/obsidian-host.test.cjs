@@ -249,11 +249,23 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
     assert.match(view.bibStatusEl.text, /1 \.bib file/);
     await assert.rejects(() => runtime.setBibliography('references/missing.bib', 'bibtex'), /Bibliography file is unavailable/);
     assert.equal(runtime.settings.bibliographyFiles, 'references/main.bib', 'a failed update restores the last valid setting');
-    const built = await runtime.build();
+    let finishSave;
+    plugin.saveData = async () => new Promise(resolve => { finishSave = resolve; });
+    const update = runtime.setBibliography('references/main.bib', 'bibtex');
+    await until(() => runtime.scheduler.held && finishSave);
+    const build = runtime.build();
+    assert.equal(runtime.scheduler.running, null, 'the build remains queued until the bibliography transaction finishes');
+    finishSave(); await update;
+    const built = await build;
     assert.equal(built.result.status, 'success');
     assert.equal(built.result.bibliographyPlacement, 'explicit');
     const pdf = await execute('pdftotext', [built.result.artifacts.pdf, '-'], { cwd: root });
     assert.match(pdf.stdout, /Panel bibliography/);
+    const outside = path.join(root, 'tmp', `outside-${path.basename(vaultRoot)}.bib`);
+    await fs.writeFile(outside, '@book{outside, title={Outside vault}}\n');
+    await fs.rename(path.join(vaultRoot, 'references/main.bib'), path.join(vaultRoot, 'references/main.saved.bib'));
+    await fs.symlink(outside, path.join(vaultRoot, 'references/main.bib'));
+    assert.throws(() => runtime.configuration(), /resolves outside this vault/, 'every build-time configuration rechecks symlink containment');
   } finally { runtime.dispose(); }
 });
 
