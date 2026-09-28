@@ -1,23 +1,32 @@
-# md2tex Workshop
+# Obsidian md2tex Workshop
 
 **Persistent Markdown ↔ LaTeX editing for Obsidian.**
 
-Keep Markdown as your everyday drafting surface and a working TeX document beside it. Compile locally to PDF, edit supported TeX where TeX is useful, preview the proposed Markdown as a patch, and apply it explicitly—without silently replacing either side.
+An Obsidian plugin for seamless interconversion between Markdown and LaTeX documents.
+
+Existing plugins already allow easy Markdown to LaTeX conversion, which you can then use as a standalone `.tex` file for your projects. But what if you want to mantain the `.md` and the `.tex` file simulataneously when either of them can be edited ? This plugins allows you to solve this problem. 
+
+
+Keep Markdown as your everyday drafting surface and a working TeX document beside it. Compile locally to PDF, edit supported TeX where TeX is useful, preview the proposed Markdown as a patch, and apply it explicitly—without silently replacing either side. It also comes with a overleaf like side panel for viewing the compiled .pdf. 
+
+>> **Extremely useful for those of us who love the in-place compilation of obsidian for drafting research articles, rather than to read raw latex untill its compiled.**
 
 ![Illustrated md2tex Workshop workflow: build Markdown into linked TeX and PDF, review TeX edits as a red and green Markdown patch, apply the accepted change, and preserve a TeX-owned table across the next build](docs/assets/readme/md2tex-workflow.gif)
 
-_Illustrated workflow, not native acceptance footage. The review scene uses the current red/green patch language; exact layout may evolve._
+_Illustrated workflow, exact layout may evolve._
 
 ## One document, two editing surfaces
 
 ```text
 Markdown note ── Build ──► linked TeX ──► PDF
-      ▲                         │
-      └──── Apply ◄── Preview ◄─┘
-                    review first
+      ▲                         │ edit TeX
+      └────◄─  Apply edit to  ◄─┘
+               Markdown
+                    
 ```
 
-Use Markdown for readable notes and everyday drafting. Use TeX for supported edits and exact structures that should remain TeX. Workshop maintains the relationship across repeated builds instead of treating TeX as a disposable export.
+**Design Philosophy :** Some things make sense in .tex, a few other makes sense in .md, thus no need to interconvert everything from on to other. Here we convert what make sense across boundaries, what does not is treated as un-editable islands, that preserve information about unconverted artifcats through interconversions. 
+
 
 ### Review before writing back
 
