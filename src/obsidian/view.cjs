@@ -3,6 +3,7 @@
  * Usage: const View = createViewClass(api, runtime); plugin.registerView(type, leaf => new View(leaf));
  */
 const { OutputTabs } = require('./output-tabs.cjs');
+const { explanationReview } = require('./explanation-review.cjs');
 
 const patchContextLines = 3;
 const patchChangedLineLimit = 400;
@@ -216,6 +217,8 @@ function createViewClass(api, runtime) {
       this.agentGuardButton = this.button(agentActions, 'Check consent guard', () => this.requestExplanation(false));
       this.agentRunButton = this.button(agentActions, runtime.explanationActionLabel || 'Run explanation', () => this.requestExplanation(true));
       this.agentCancelButton = this.button(agentActions, 'Cancel explanation', () => runtime.explanations?.cancel());
+      this.agentCopyButton = this.button(agentActions, 'Copy agent response', () => runtime.copyExplanation(this.agentDisplayedAnswer, this.agentDisplayedPacket));
+      this.agentCopyButton.disabled = true;
       this.agentGuardButton.hidden = Boolean(runtime.explanations);
       this.agentStatusEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-status' });
       this.agentStatusEl.setAttribute('role', 'status');
@@ -278,22 +281,31 @@ function createViewClass(api, runtime) {
     /** Render validated advice as text and evidence-bound red/green display patches, never an Apply action. */
     renderExplanation(answer, packet) {
       this.agentResultEl.setText(''); this.agentPatchEl.empty();
+      this.agentDisplayedAnswer = null; this.agentDisplayedPacket = null; this.agentCopyButton.disabled = true;
       if (!answer?.explanation) return;
-      const reply = answer.explanation;
-      const locations = (reply.locations || []).map(location => {
-        const evidence = packet?.evidence.find(item => item.id === location.evidenceId);
-        return `${evidence?.kind === 'log' ? 'Compiler log' : 'Markdown'} lines ${location.startLine}–${location.endLine}: ${location.reason}`;
-      });
-      this.agentResultEl.setText([reply.summary, ...locations, ...reply.suggestions.map(item => `Suggestion: ${item.text}`)].join('\n\n'));
-      for (const edit of reply.edits || []) {
-        this.agentPatchEl.createEl('p', { text: `Suggested Markdown change, lines ${edit.startLine}–${edit.endLine}: ${edit.reason}` });
-        const pre = this.agentPatchEl.createEl('pre', { cls: 'md2tex-workshop-patch' });
+      const review = explanationReview(answer, packet);
+      this.agentDisplayedAnswer = answer; this.agentDisplayedPacket = packet;
+      this.agentCopyButton.disabled = typeof runtime.copyExplanation !== 'function';
+      this.agentResultEl.setText(review.summary);
+      for (const [index, finding] of review.findings.entries()) {
+        const card = this.agentPatchEl.createDiv({ cls: 'md2tex-workshop-agent-finding' });
+        card.createEl('h4', { text: `Finding ${index + 1} — ${finding.label}` });
+        card.createEl('p', { text: finding.reason });
+        const context = card.createEl('pre', { cls: 'md2tex-workshop-agent-context' });
+        context.setAttribute('aria-label', 'Captured context. Highlighted lines are affected; numbers are absolute source or log lines.');
+        for (const line of finding.context.lines) context.createEl('span', { cls: line.affected ? 'md2tex-workshop-agent-fault' : '', text: `${line.affected ? '>' : ' '} ${line.number ?? '…'} | ${line.text}\n` });
+        if (finding.context.note) card.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: finding.context.note });
+        const edit = finding.edit;
+        if (!edit) { card.createEl('p', { text: 'No verified patch for this location. Follow the diagnosis and check manually.' }); continue; }
+        card.createEl('p', { text: 'Suggested change — please edit your note:' });
+        const pre = card.createEl('pre', { cls: 'md2tex-workshop-patch' });
         pre.setAttribute('aria-label', 'Suggested manual patch. Removed lines start with minus; added lines start with plus.');
         const diff = createUnifiedDiff(edit.before + '\n', edit.after ? edit.after + '\n' : '');
         for (const line of diff.lines) if (line.kind === 'hunk') line.text = line.text.replace(/@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@/, (_match, old, oldCount = '', next, nextCount = '') => `@@ -${Number(old) + edit.startLine - 1}${oldCount} +${Number(next) + edit.startLine - 1}${nextCount} @@`);
         renderUnifiedDiff(pre, diff);
       }
-      this.agentPatchEl.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: 'Please make the change in your note, then Build again. Advice has not been applied or compiler-tested.' });
+      for (const suggestion of review.suggestions) this.agentPatchEl.createEl('p', { text: `Next action: ${suggestion}` });
+      this.agentPatchEl.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: review.manual });
     }
     /** Request one read-only explanation; discard replies if the build or editor revision changes. */
     async requestExplanation(allowTrusted) {

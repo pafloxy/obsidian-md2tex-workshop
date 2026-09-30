@@ -20,6 +20,7 @@ const { readRecordedFailure } = require('../core/failure-record.cjs');
 const { explainWithAgent, validateAgentProfile } = require('../core/agent-dispatch.cjs');
 const { explainWithApi, validateApiProfile } = require('../core/explanation-api.cjs');
 const { ExplanationSession } = require('./explanation-session.cjs');
+const { explanationReview } = require('./explanation-review.cjs');
 
 const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600,
   explanationEnabled: false, explanationAutomatic: true, explanationProvider: 'local-api', explanationEndpoint: 'http://127.0.0.1:1234/v1/chat/completions', explanationModel: 'local', explanationExecutable: '', explanationTimeoutMs: 30000 });
@@ -196,6 +197,20 @@ function createRuntime(plugin, api, { openPath, writeClipboard, explanationProvi
       const relative = path.relative(expected, filename);
       if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error('Output does not belong to this note');
       return filename;
+    },
+    /** Copy exactly the displayed validated findings after a live-source freshness check. Usage: runtime.copyExplanation(answer, packet). */
+    async copyExplanation(answer, packet) {
+      if (!writeClipboard) throw new Error('Clipboard access is unavailable in this host');
+      const current = () => !this.disposed && this.explanations.state().answer === answer && this.explanations.state().packet === packet && this.explanations.state().status === 'success';
+      if (!answer || !packet || !current()) throw new Error('No current agent response to copy. Rebuild or request a fresh explanation.');
+      const state = this.controller.state();
+      if (!state.target || !this.explanations.eligible(state)) throw new Error('The draft or build changed. Request a fresh explanation.');
+      const snapshot = await sources.capture(state.target);
+      if (!current() || this.controller.state().target !== state.target || sourceHash(snapshot.canonicalPath) !== packet.identity.documentId || snapshot.sha256 !== packet.identity.sourceHash) throw new Error('The draft or response changed. Request a fresh explanation.');
+      const text = explanationReview(answer, packet).text;
+      await writeClipboard(text);
+      new api.Notice('Copied agent response with line context and manual suggestions.');
+      return { bytes: Buffer.byteLength(text, 'utf8') };
     },
     /** Copy the selected note's last successful generated document, never its editable linked target. */
     async copyGeneratedTex() {

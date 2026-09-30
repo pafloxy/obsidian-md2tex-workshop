@@ -8,7 +8,9 @@ Codex uses the existing trusted local-agent bridge and its fixed noninteractive,
 
 ## Review, then edit manually
 
-The Agent tab displays running, suggestion, cancelled, or retry status without blocking builds or the other tabs. Replies identify captured Markdown or log line ranges when available. Small corrections appear as red deletion and green addition lines with git-style prefixes. There is no Apply button: make the change in the editor yourself, then Build again. Advice is not proof that a proposed correction compiles. When captured evidence cannot establish a cause, the agent should explain the limitation or ask for human judgment instead of inventing a patch.
+The Agent tab displays running, suggestion, cancelled, or retry status without blocking builds or the other tabs. A short diagnosis comes first, followed by separate numbered finding cards. Each card identifies captured Markdown or compiler-log line ranges, highlights the affected lines, and shows up to two preceding and succeeding captured lines. Missing context, truncated evidence, and unknown locations are stated explicitly. A location and correction with the same evidence and range share one card. Small corrections appear as red deletion and green addition lines with git-style prefixes and absolute Markdown hunk coordinates. There is no Apply button: make the change in the editor yourself, then Build again. Advice is not proof that a proposed correction compiles. When captured evidence cannot establish a cause, the agent should explain the limitation or ask for human judgment instead of inventing a patch.
+
+Copy agent response copies the complete diagnosis, numbered findings, line-numbered context, suggested minus/plus corrections, next actions, and manual-edit disclaimer as plain text. It is available only for a current validated reply; it checks the live source again before copying and neither calls the provider nor changes the source. Clipboard failures are reported. The same host formatting applies to both Local API and Codex replies; it does not change global Codex preferences.
 
 The response contract accepts at most three evidence-bound edits. Each `before` must match the exact captured source range, overlapping ranges are refused, and truncated excerpts or log text cannot be patch targets. Tool setup, execution, configuration, and target-publication failures cannot propose source edits. A successful PDF with a refused linked-target update is reported as a publication failure, not a syntax failure. Generation checks and a second live-source capture reject delayed replies after edits, note switches, new builds, disable, cancellation, or unload. Provider failures do not loop automatically; Retry explanation is explicit.
 
@@ -39,7 +41,7 @@ The browser host loads the current production panel, output tabs, session, and A
 From the checkout root:
 
 ```sh
-node --test --test-isolation=none --test-concurrency=1 testing/automatic-explanation.test.cjs testing/obsidian-host.test.cjs testing/output-tabs.test.cjs testing/agent-bridge.test.cjs
+node --test --test-isolation=none --test-concurrency=1 testing/explanation-review.test.cjs testing/automatic-explanation.test.cjs testing/obsidian-host.test.cjs testing/output-tabs.test.cjs testing/agent-bridge.test.cjs
 ```
 
 Tests cover exact patches, invalid evidence, stale identities, duplicate dispatch, disabled/success/history behavior, cancellation, silent source changes, startup failures, settings rollback, loopback transport, missing providers, malformed replies, output limits, redirects, tool calls, and deadlines. Real Codex and browser evidence must be recorded separately with the selected executable, actual captured packet, and source-preservation check.

@@ -146,6 +146,10 @@
 .md2tex-workshop-output-agent input[type="text"] { display: block; width: 100%; box-sizing: border-box; }
 .md2tex-workshop-agent-result { max-height: none; }
 .md2tex-workshop-agent-manual { color: var(--text-muted); }
+.md2tex-workshop-agent-finding { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 12px; margin: 12px 0; }
+.md2tex-workshop-agent-finding h4 { margin: 0 0 8px; }
+.md2tex-workshop-agent-context { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--background-secondary); padding: 8px; }
+.md2tex-workshop-agent-fault { color: var(--text-error); background: rgba(230, 80, 80, 0.12); }
 
 /* Reverse-review patch: prefixes carry meaning without color; theme colors add fast visual scanning. */
 .md2tex-workshop-review { overflow: auto; padding: 12px; }

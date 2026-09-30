@@ -17,6 +17,7 @@ const { readFailurePacket } = require('../src/core/failure-packet.cjs');
 const { validateFailurePacket, validateExplanation } = require('../src/core/explanation-contract.cjs');
 const { explainWithAgent, prompt } = require('../src/core/agent-dispatch.cjs');
 const { createRuntime } = require('../src/obsidian/plugin.cjs');
+const { explanationReview } = require('../src/obsidian/explanation-review.cjs');
 const root = path.resolve(__dirname, '..');
 const seed = '# Syntax repair draft\n\nThis note tests a manual syntax correction.\n\n$$\n\\fracc{1}{2}=0.5\n$$\n';
 const fixedSeed = seed.replace('\\fracc', '\\frac');
@@ -64,7 +65,10 @@ async function main() {
       return packet;
     },
   });
-  runtime.controller.state = () => ({ ...state, assistance: runtime.explanations.state() });
+  runtime.controller.state = () => {
+    const assistance = runtime.explanations.state();
+    return { ...state, assistance: { ...assistance, review: assistance.answer ? explanationReview(assistance.answer, assistance.packet) : null } };
+  };
   /** Notify the same production observer after every demo state transition. */
   function emit() { runtime.explanations.observe(runtime.controller.state()); }
   /** Compile scratch text and retain the last successful PDF through an actual failed attempt. */
@@ -94,7 +98,7 @@ async function main() {
     Object.assign(HTMLElement.prototype,{empty(){this.replaceChildren()},addClass(...x){this.classList.add(...x)},setText(x){this.textContent=x},createDiv(x){return this.createEl('div',x)},createEl(tag,o={}){const e=document.createElement(tag);if(o.cls)e.className=o.cls;if(o.text)e.textContent=o.text;for(const k of ['type','placeholder'])if(o[k])e[k]=o[k];for(const [k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e}});
     const Buffer={byteLength:x=>new TextEncoder().encode(x).length};
     const tabs={exports:{}};((module)=>{${tabCode}\n})(tabs);
-    const view={exports:{}};((module,require)=>{${viewCode}\n})(view,()=>tabs.exports);
+    const view={exports:{}};((module,require)=>{${viewCode}\n})(view,name=>name==='./explanation-review.cjs'?{explanationReview:()=>state.assistance.review}:tabs.exports);
     let state,subscriber,panel,settings;let sending=false;
     const notify=x=>document.getElementById('notice').textContent=x;
     const request=async(route,data)=>{const r=await fetch(route,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const x=await r.json();if(!r.ok)throw new Error(x.error);return x};
@@ -104,6 +108,7 @@ async function main() {
     const runtime={settings:{},controller:{state:()=>state,subscribe(f){subscriber=f;f(state);return()=>subscriber=null},async inspect(){},async refreshTarget(){},togglePin(){state.pinned=!state.pinned;emit()}},
       explanations:{eligible:s=>!s.busy&&s.latestCurrent&&(s.latest?.status==='error'||s.latest?.target?.status==='error'),request:async()=>{const x=await request('/explain',{});state=x.state;emit()},cancel:async()=>{const x=await request('/cancel',{});state=x.state;emit()}},
       configureExplanation:async values=>{const x=await request('/configure',values);runtime.settings=x.settings;state=x.state;emit()},
+      copyExplanation:async(answer,packet)=>{const x=await request('/agent-copy',{packetId:packet.packetId});if(state.assistance?.packet?.packetId!==packet.packetId)throw new Error('Response changed; request a fresh explanation');await navigator.clipboard.writeText(x.text);notify('Copied agent response')},
       perform:async f=>{try{return await f()}catch(e){notify(e.message)}},
       build:async()=>{sending=true;state.busy=true;emit();try{state=await request('/build',{text:document.getElementById('source').value});notify(state.latest.status==='success'?'Build succeeded':'Build failed; Agent explains it automatically.')}finally{sending=false;emit()}},
       scheduler:{cancel(){notify('This demo bounds builds at 30 seconds. Cancel explanation is available in Agent.')}},
@@ -142,6 +147,11 @@ async function main() {
           value = { choices: [{ message: { content: JSON.stringify(reply) } }] };
         }
       } else if (route === '/state') value = { source, settings: runtime.settings, state: runtime.controller.state(), providerCalls, scratch, agent: values.agent };
+      else if (route === '/agent-copy' && request.method === 'POST') {
+        const current = runtime.explanations.state();
+        if (!current.answer || current.packet?.packetId !== data.packetId || !runtime.explanations.eligible(state) || sourceHash(source) !== current.packet.identity.sourceHash) throw new Error('Response or draft changed; request a fresh explanation');
+        value = { text: explanationReview(current.answer, current.packet).text };
+      }
       else if (route === '/build' && request.method === 'POST') { if (typeof data.text !== 'string' || Buffer.byteLength(data.text) > 256 * 1024) throw new Error('Expected bounded Markdown text'); value = await compile(data.text); }
       else if (route === '/invalidate' && request.method === 'POST') { state.latestCurrent = false; state.current = false; emit(); value = { state: runtime.controller.state() }; }
       else if (route === '/explain' && request.method === 'POST') { if (!runtime.explanations.eligible(state)) throw new Error('Build the current failing revision first'); void runtime.explanations.request(); value = { state: runtime.controller.state() }; }

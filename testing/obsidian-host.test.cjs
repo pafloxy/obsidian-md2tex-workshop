@@ -15,7 +15,61 @@ const { execute } = require('./execute.cjs');
 const { createRuntime, resolvePanelBibliography } = require('../src/obsidian/plugin.cjs');
 const { createViewClass, createReviewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
+const { sealPacket, packetVersion, reviewVersion } = require('../src/core/explanation-contract.cjs');
 const root = path.resolve(__dirname, '..');
+
+test('Agent cards show numbered context and copy a fresh complete response without writing source', async t => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const dir = await fs.mkdtemp(path.join(root, 'tmp/agent-review-'));
+  const filePath = path.join(dir, 'note.md'), source = 'Before.\n\\fracc{1}{2}\nAfter.\n';
+  await fs.writeFile(filePath, source);
+  const packet = sealPacket({ schemaVersion: packetVersion, command: 'failure-packet', status: 'success', scope: 'explanation-only', origin: 'attempt', buildStatus: 'error',
+    identity: { documentId: sourceHash(filePath), sourceHash: sourceHash(source), recipeFingerprint: null, converterHash: null, toolchainFingerprint: null,
+      resolvedRecipeHash: null, attemptId: 'copy-test', jobId: null, failureId: '' }, category: 'tex', summary: 'Undefined control sequence',
+    primaryEvidenceId: 'diagnostic-1', evidence: [
+      { id: 'diagnostic-1', kind: 'diagnostic', code: 'LATEX_ERROR', stage: 'compilation', message: 'Undefined command', sourceLine: 2, sourceEndLine: 2 },
+      { id: 'source-1', kind: 'source', startLine: 1, endLine: 3, text: source.slice(0, -1), truncated: false }], omittedDiagnostics: 0, omissions: [] });
+  const explanation = { schemaVersion: reviewVersion, packetId: packet.packetId, failureId: packet.identity.failureId, sourceHash: packet.identity.sourceHash,
+    verdict: 'explained', summary: '<literal> Unknown fraction command.', evidenceIds: ['diagnostic-1', 'source-1'], suggestions: [],
+    locations: [{ evidenceId: 'source-1', startLine: 2, endLine: 2, reason: 'Misspelled control word.' }],
+    edits: [{ evidenceId: 'source-1', startLine: 2, endLine: 2, before: '\\fracc{1}{2}', after: '\\frac{1}{2}', reason: 'Misspelled control word.' }] };
+  const value = host(dir, {}), plugin = new value.api.Plugin();
+  const file = new value.api.TFile('note.md'), editor = new value.api.MarkdownView(file, source);
+  value.leaves.push({ view: editor });
+  let calls = 0, clipboardFailure = false;
+  const runtime = createRuntime(plugin, value.api, { prepareFailure: async () => packet,
+    explanationProvider: async () => { calls++; return { explanation }; },
+    writeClipboard: text => { if (clipboardFailure) throw new Error('Synthetic clipboard denied'); value.copied.push(text); } });
+  t.after(() => runtime.dispose());
+  const state = { target: file, busy: false, latestCurrent: true, latest: { status: 'error', attemptId: 'copy-test' }, buildGeneration: 1 };
+  runtime.controller.state = () => ({ ...state, assistance: runtime.explanations.state() });
+  runtime.controller.notify = () => {};
+  runtime.controller.subscribe = callback => { callback(runtime.controller.state()); return () => {}; };
+  runtime.controller.inspect = async () => {}; runtime.controller.refreshTarget = async () => {};
+  runtime.settings.explanationEnabled = true;
+  runtime.explanations.configure({ enabled: true, automatic: false }); runtime.explanations.observe(state);
+  const View = createViewClass(value.api, runtime), view = new View({}); await view.onOpen();
+  assert.equal(view.agentCopyButton.disabled, true);
+  await runtime.explanations.request(); view.render(runtime.controller.state());
+  assert.equal(view.agentCopyButton.disabled, false); assert.equal(view.agentResultEl.text, explanation.summary);
+  const card = view.agentPatchEl.children.find(child => child.className === 'md2tex-workshop-agent-finding');
+  assert.match(card.children[0].text, /Finding 1 — Markdown line 2/);
+  const context = card.children.find(child => child.className === 'md2tex-workshop-agent-context');
+  assert.match(context.children.map(child => child.text).join(''), /1 \| Before\.[\s\S]*> 2 \| \\fracc[\s\S]*3 \| After\./);
+  assert.ok(context.children.some(child => child.className === 'md2tex-workshop-agent-fault'));
+  const patch = card.children.find(child => child.className === 'md2tex-workshop-patch');
+  assert.ok(patch.children.some(child => /patch-delete/.test(child.className))); assert.ok(patch.children.some(child => /patch-add/.test(child.className)));
+  await view.agentCopyButton.events.click(); assert.equal(value.copied.length, 1);
+  assert.match(value.copied[0], /Finding 1[\s\S]*Before\.[\s\S]*- \\fracc[\s\S]*\+ \\frac[\s\S]*yourself/);
+  assert.equal(calls, 1); assert.equal(await fs.readFile(filePath, 'utf8'), source); assert.equal(editor.transactions.length, 0);
+  const { answer, packet: displayed } = runtime.explanations.state();
+  clipboardFailure = true; await assert.rejects(() => runtime.copyExplanation(answer, displayed), /clipboard denied/); clipboardFailure = false;
+  editor.text += 'Changed.'; await assert.rejects(() => runtime.copyExplanation(answer, displayed), /draft or response changed/i); assert.equal(value.copied.length, 1);
+  runtime.explanations.cancel(false); runtime.explanations.result = null; view.render(runtime.controller.state());
+  assert.equal(view.agentCopyButton.disabled, true); assert.equal(view.agentPatchEl.children.length, 0);
+  await assert.rejects(() => runtime.copyExplanation(answer, displayed), /No current agent response/);
+  await view.onClose();
+});
 
 /** Store only the DOM operations used by the presentation module. */
 class Element {
