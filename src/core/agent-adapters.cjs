@@ -9,15 +9,22 @@ const path = require('node:path');
 const explanationSchema = {
   type: 'object',
   properties: {
-    schemaVersion: { type: 'string', enum: ['workshop-explanation.v1'] },
+    schemaVersion: { type: 'string', enum: ['workshop-explanation.v2'] },
     packetId: { type: 'string' }, failureId: { type: 'string' }, sourceHash: { type: 'string' },
     verdict: { type: 'string', enum: ['explained', 'uncertain', 'needs-human'] },
     summary: { type: 'string' }, evidenceIds: { type: 'array', items: { type: 'string' } },
     suggestions: { type: 'array', items: { type: 'object', properties: {
       text: { type: 'string' }, evidenceIds: { type: 'array', items: { type: 'string' } },
     }, required: ['text', 'evidenceIds'], additionalProperties: false } },
+    locations: { type: 'array', items: { type: 'object', properties: {
+      evidenceId: { type: 'string' }, startLine: { type: 'integer' }, endLine: { type: 'integer' }, reason: { type: 'string' },
+    }, required: ['evidenceId', 'startLine', 'endLine', 'reason'], additionalProperties: false } },
+    edits: { type: 'array', items: { type: 'object', properties: {
+      evidenceId: { type: 'string' }, startLine: { type: 'integer' }, endLine: { type: 'integer' },
+      before: { type: 'string' }, after: { type: 'string' }, reason: { type: 'string' },
+    }, required: ['evidenceId', 'startLine', 'endLine', 'before', 'after', 'reason'], additionalProperties: false } },
   },
-  required: ['schemaVersion', 'packetId', 'failureId', 'sourceHash', 'verdict', 'summary', 'evidenceIds', 'suggestions'],
+  required: ['schemaVersion', 'packetId', 'failureId', 'sourceHash', 'verdict', 'summary', 'evidenceIds', 'suggestions', 'locations', 'edits'],
   additionalProperties: false,
 };
 
@@ -33,4 +40,4 @@ async function prepareAgentInvocation(profile, cwd) {
   ] };
 }
 
-module.exports = { prepareAgentInvocation };
+module.exports = { prepareAgentInvocation, explanationSchema };
