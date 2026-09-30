@@ -311,6 +311,46 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
   } finally { runtime.dispose(); }
 });
 
+for (const kind of ['syntax', 'worker-startup']) test(`runtime automatically explains captured ${kind} evidence without writing the note`, async () => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/automatic-host-'));
+  const source = '# Draft\n\n![Plot](missing.png)\n';
+  await fs.writeFile(path.join(vaultRoot, 'draft.md'), source);
+  const value = host(vaultRoot, { nodeCommand: kind === 'syntax' ? process.execPath : path.join(vaultRoot, 'missing-node') });
+  const file = new value.api.TFile('draft.md'); const editor = new value.api.MarkdownView(file, source);
+  value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
+  const plugin = new value.api.Plugin(); let calls = 0;
+  const runtime = createRuntime(plugin, value.api, { explanationProvider: async packet => {
+    calls++;
+    return { explanation: { schemaVersion: 'workshop-explanation.v2', packetId: packet.packetId, failureId: packet.identity.failureId,
+      sourceHash: packet.identity.sourceHash, verdict: 'needs-human', summary: packet.summary, evidenceIds: ['diagnostic-1'], suggestions: [], locations: [], edits: [] } };
+  } });
+  try {
+    await runtime.start(); assert.equal(plugin.saves, 0); assert.equal(calls, 0);
+    await runtime.configureExplanation({ explanationEnabled: true });
+    if (kind === 'worker-startup') await assert.rejects(runtime.build(), { code: 'NODE_UNAVAILABLE' });
+    else await runtime.build();
+    await until(() => ['success', 'error'].includes(runtime.explanations.state().status));
+    assert.equal(runtime.explanations.state().status, 'success', runtime.explanations.state().message);
+    assert.equal(calls, 1); runtime.controller.notify(); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
+    assert.equal(runtime.explanations.state().packet.identity.sourceHash, sourceHash(source));
+    const generation = runtime.controller.state().buildGeneration;
+    assert.equal(await runtime.controller.compile(file, { skipUnchanged: true }), null);
+    assert.equal(runtime.controller.state().buildGeneration, generation);
+    assert.equal(calls, 1, 'a skipped unchanged build is not a fresh failure');
+    assert.equal(await fs.readFile(path.join(vaultRoot, 'draft.md'), 'utf8'), source);
+    assert.equal(editor.text, source); assert.equal(editor.transactions.length, 0);
+    editor.text += '\nChanged silently.\n';
+    await runtime.explanations.request();
+    assert.equal(runtime.explanations.state().answer, null); assert.match(runtime.explanations.state().message, /STALE_EXPLANATION/);
+    assert.equal(calls, 1, 'freshness refusal happens before another provider call');
+    await assert.rejects(runtime.configureExplanation({ explanationEnabled: 'true' }), /true or false/);
+    plugin.saveData = async () => { throw new Error('settings unavailable'); };
+    await assert.rejects(runtime.configureExplanation({ explanationEnabled: false }), /settings unavailable/);
+    assert.equal(runtime.explanations.state().enabled, true, 'failed settings persistence restores prior policy');
+  } finally { runtime.dispose(); }
+});
+
 test('shared explanation pane requires a current failure and discards stale replies', async () => {
   const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
   const first = { status: 'error', diagnostics: [{ severity: 'error', message: 'Unsupported image' }] };
@@ -326,9 +366,9 @@ test('shared explanation pane requires a current failure and discards stale repl
   const View = createViewClass(value.api, runtime);
   const view = new View({});
   await view.onOpen();
-  assert.equal(view.agentEl.open, false);
-  assert.ok(view.contentEl.children.indexOf(view.output.root) < view.contentEl.children.indexOf(view.agentEl));
-  assert.ok(view.contentEl.children.indexOf(view.agentEl) < view.contentEl.children.indexOf(view.detailsEl));
+  assert.equal(view.agentEl, view.output.agentPanel);
+  assert.equal(view.agentEl.hidden, true);
+  assert.ok(view.contentEl.children.indexOf(view.output.root) < view.contentEl.children.indexOf(view.detailsEl));
   assert.equal(view.agentRunButton.disabled, false);
   await view.agentGuardButton.events.click();
   assert.deepEqual(calls, [{ allowTrusted: false }]);
@@ -426,7 +466,7 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   await until(() => view.unsubscribe);
   assert.deepEqual(view.contentEl.children[0].children.map(child => child.text), ['Build', 'Set TeX target']);
   assert.equal(view.controlsEl.open, false);
-  assert.equal(view.agentEl.open, false);
+  assert.equal(view.agentEl.hidden, true);
   assert.equal(view.agentRunButton.disabled, true);
   assert.match(view.agentInfoEl.text, /not configured/);
   assert.equal(view.detailsEl.open, false);

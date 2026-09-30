@@ -1,6 +1,6 @@
 # Manual local agent bridge
 
-A captured failure packet can now be sent to Codex or a user-owned local CLI wrapper for one explanation. The caller selects a `codex` or `custom` profile and explicitly opts into trusted command execution for each invocation. Workshop sends the packet and a compact task prompt, then validates the single JSON reply against the original packet. This command is manual; compilation, automatic explanation and the Obsidian panel do not invoke it.
+A captured failure packet can be sent to Codex or a user-owned local CLI wrapper for one explanation. The CLI caller selects a `codex` or `custom` profile and explicitly opts into trusted command execution for each invocation. Workshop sends the packet and a fixed task prompt, then validates the single JSON reply against the original packet. The command remains manual. Separately, the [Agent panel](automatic-explanations.md) can enable Codex under an explicit automatic/manual policy; ordinary compilation without that opt-in makes no call.
 
 ## Profile and invocation
 
@@ -42,11 +42,11 @@ For Codex, use the same command with `adapter: "codex"`, an absolute path to the
 }
 ```
 
-The plugin does not enable this command automatically. For a different installed coding agent, use the `custom` wrapper contract below. Do not assume Codex and Qwen share flags or JSON envelopes. Qwen, other named adapters, native settings and automatic dispatch remain later milestones.
+The plugin does not enable assistance by default. Its Agent tab exposes Local API and Codex opt-in settings. For a different installed coding agent, use the CLI `custom` wrapper contract below. Do not assume Codex and Qwen share flags or JSON envelopes; other named adapters remain later work.
 
 ## Wrapper contract
 
-The wrapper receives one UTF-8 JSON object on stdin, followed by EOF. It contains `schemaVersion: workshop-agent-request.v1`, `promptVersion`, `prompt` and the validated `packet`. The packet is immutable evidence, including any quoted Markdown or TeX log text. On success, the wrapper writes exactly one `workshop-explanation.v1` JSON object to stdout and exits zero; optional surrounding whitespace is allowed. It may write diagnostics to stderr, but they are never interpreted as a reply. The response shape and evidence rules are documented in [explanations](explanations.md). A valid-looking reply followed by nonzero exit is refused.
+The wrapper receives one UTF-8 JSON object on stdin, followed by EOF. It contains `schemaVersion: workshop-agent-request.v1`, `promptVersion`, `prompt` and the validated `packet`. The packet is immutable evidence, including any quoted Markdown or TeX log text. On success, the wrapper writes exactly one `workshop-explanation.v2` JSON object to stdout and exits zero; legacy version 1 replies remain accepted, and optional surrounding whitespace is allowed. It may write diagnostics to stderr, but they are never interpreted as a reply. The response shape and evidence rules are documented in [explanations](explanations.md). A valid-looking reply followed by nonzero exit is refused.
 
 The command returns `workshop-agent-explanation-result.v1` with `status: success`, packet ID, selected mode and validated explanation. It exits one for a profile, process, output or response failure and two for invalid CLI arguments. Failures keep their own agent diagnostic code; they do not alter the compiler result or PDF. A stale source/failure/packet identity is refused by the existing response validator.
 
@@ -54,7 +54,7 @@ Input is limited to 64 KiB. Captured stdout is limited to 256 KiB, stderr to 64 
 
 The runner checks and reads the same parent-owned output file descriptor. A replaced output pathname is refused, and cancellation or deadline expiry during final readback prevents a successful reply. The periodic size check limits what Workshop accepts; a fast-writing child can briefly write more than that amount to disk before termination, so it is not a disk quota. Process cleanup may use an additional one-second kill grace after the invocation deadline.
 
-The validator checks packet identity, allowed fields and evidence references; it does not prove the advice is correct. Render the reply as text. The current CLI has no live-editor freshness check, so an old packet and its matching old reply may still validate. The later Obsidian observer must compare the current editor/job generation before displaying advice as current.
+The validator checks packet identity, allowed fields and evidence references; it does not prove the advice is correct. Render the reply as text. The CLI has no live-editor freshness check, so an old packet and its matching old reply may still validate. The Obsidian session additionally compares the current editor/job generation and recaptures live source before displaying advice as current.
 
 ## Verification
 

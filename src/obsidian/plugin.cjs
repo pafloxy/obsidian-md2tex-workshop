@@ -15,8 +15,14 @@ const { ToolchainClient } = require('./client.cjs');
 const { createViewClass, createReviewClass } = require('./view.cjs');
 const { documentDirectory } = require('../core/artifacts.cjs');
 const { renderPdf } = require('./pdf-embed.cjs');
+const { readFailurePacket } = require('../core/failure-packet.cjs');
+const { readRecordedFailure } = require('../core/failure-record.cjs');
+const { explainWithAgent, validateAgentProfile } = require('../core/agent-dispatch.cjs');
+const { explainWithApi, validateApiProfile } = require('../core/explanation-api.cjs');
+const { ExplanationSession } = require('./explanation-session.cjs');
 
-const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600 });
+const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600,
+  explanationEnabled: false, explanationAutomatic: true, explanationProvider: 'local-api', explanationEndpoint: 'http://127.0.0.1:1234/v1/chat/completions', explanationModel: 'local', explanationExecutable: '', explanationTimeoutMs: 30000 });
 const labelMetadata = '<!-- [label{}] -->';
 const labelIdentifierOffset = '<!-- [label{'.length;
 
@@ -69,11 +75,56 @@ function verifiedPanelBibliography(value, vaultRoot) {
 }
 
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
-function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
+function createRuntime(plugin, api, { openPath, writeClipboard, explanationProvider, prepareFailure } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
   const writer = new SourceWriter({ app: plugin.app, MarkdownView: api.MarkdownView, sourceStore: sources });
   const runtime = {
     plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null, reviewLeaf: null,
+    /** Validate the selected explanation transport before opt-in or connection. Usage: runtime.explanationProfile(settings). */
+    explanationProfile(settings = this.settings) {
+      if (settings.explanationProvider === 'local-api') return validateApiProfile({ endpoint: settings.explanationEndpoint, model: settings.explanationModel, timeoutMs: Number(settings.explanationTimeoutMs) });
+      if (settings.explanationProvider !== 'codex') throw new Error('Choose Local API or Codex for explanations');
+      return validateAgentProfile({ schemaVersion: 'workshop-agent-profile.v1', enabled: true, adapter: 'codex', executable: settings.explanationExecutable, args: [], mode: 'trusted', timeoutMs: Number(settings.explanationTimeoutMs), inheritEnv: [] });
+    },
+    /** Persist an explicit panel opt-in; failure restores prior policy and never launches a provider. */
+    async configureExplanation(values) {
+      if (this.explanationSaving) throw new Error('Wait for the explanation settings to finish saving');
+      const allowed = ['explanationEnabled', 'explanationAutomatic', 'explanationProvider', 'explanationEndpoint', 'explanationModel', 'explanationExecutable', 'explanationTimeoutMs'];
+      if (!values || Object.keys(values).some(key => !allowed.includes(key))) throw new Error('Unexpected explanation setting');
+      const candidate = { ...this.settings, ...values };
+      for (const key of ['explanationEnabled', 'explanationAutomatic']) if (typeof candidate[key] !== 'boolean') throw new Error('Explanation switches must be true or false');
+      if (candidate.explanationEnabled) this.explanationProfile(candidate);
+      this.explanationSaving = true;
+      this.explanations.configure({ enabled: false });
+      const prior = this.settings;
+      try { await plugin.saveData(candidate); this.settings = candidate; this.explanations.configure({ enabled: candidate.explanationEnabled, automatic: candidate.explanationAutomatic }); }
+      catch (error) { this.settings = prior; this.explanations.configure({ enabled: prior.explanationEnabled, automatic: prior.explanationAutomatic }); throw error; }
+      finally { this.explanationSaving = false; this.controller.notify(); }
+    },
+    /** Prepare one captured attempt/job and verify it still belongs to the selected live note. */
+    async prepareExplanation(state, signal) {
+      if (prepareFailure) return prepareFailure(state, signal);
+      if (signal.aborted) throw Object.assign(new Error('Explanation cancelled'), { code: 'AGENT_CANCELLED' });
+      const record = state.diagnostic?.failureRecord || state.failureRecord;
+      let filename;
+      if (record) {
+        const root = path.join(this.configuration().outputRoot, '.jobs');
+        if (path.basename(record) !== 'failure.json' || path.dirname(path.dirname(record)) !== root) throw new Error('Failure record does not belong to this output root');
+        filename = record;
+      } else filename = this.artifact('result', { successful: false });
+      const packet = await (record ? readRecordedFailure(filename) : readFailurePacket(filename));
+      const snapshot = await sources.capture(state.target);
+      if (packet.identity.documentId !== sourceHash(snapshot.canonicalPath) || packet.identity.sourceHash !== snapshot.sha256) throw Object.assign(new Error('The note changed; rebuild before explaining it'), { code: 'STALE_EXPLANATION' });
+      return packet;
+    },
+    /** Send only a validated captured packet through the configured provider. */
+    async dispatchExplanation(packet, signal) {
+      if (!this.settings.explanationEnabled) throw Object.assign(new Error('Agent assistance is disabled'), { code: 'AGENT_DISABLED' });
+      if (explanationProvider) return explanationProvider(packet, signal);
+      const profile = this.explanationProfile();
+      if (this.settings.explanationProvider === 'local-api') return explainWithApi(packet, profile, { signal });
+      return explainWithAgent(packet, profile, { allowTrusted: true, signal, scratchRoot: path.join(this.configuration().outputRoot, '.agent-jobs') });
+    },
     /** Resolve explicit worker/recipe settings without consulting cached note frontmatter. */
     configuration(settings = this.settings) {
       const folder = settings.outputFolder;
@@ -342,6 +393,10 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       const saved = await plugin.loadData();
       if (this.disposed) return;
       this.settings = { ...defaults, ...(saved || {}) };
+      if (this.settings.explanationEnabled) {
+        try { this.explanationProfile(); this.explanations.configure({ enabled: true, automatic: this.settings.explanationAutomatic }); }
+        catch (error) { new api.Notice(`Agent settings need attention: ${error.message}`); }
+      }
       this.scheduler.configure({ enabled: this.settings.autoBuildEnabled === true, delayMs: Number(this.settings.buildDebounceMs) });
       const View = createViewClass(api, this);
       plugin.registerView('md2tex-workshop-view', leaf => new View(leaf));
@@ -358,7 +413,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         ['reveal-compiled-pdf', 'Open Rendered PDF Tab', () => this.openArtifact('pdf')],
         ['open-generated-tex', 'Open Generated TeX', () => this.openArtifact('tex')],
         ['copy-generated-tex', 'Copy Generated TeX from Last Successful Build', () => this.copyGeneratedTex()],
-        ['ask-agent-to-fix-compile-error', 'Explain Compilation Assistance Availability', () => { new api.Notice('AI assistance is off. Compilation diagnostics are available in the Workshop.'); }],
+        ['ask-agent-to-fix-compile-error', 'Explain Failed Build', async () => { await this.openView(); if (!this.settings.explanationEnabled) new api.Notice('AI assistance is off. Enable a provider in the Agent tab.'); else await this.explanations.request(); }],
       ];
       for (const [id, name, action] of actions) plugin.addCommand({ id, name, callback: () => this.perform(action) });
       plugin.addCommand({ id: 'insert-label-metadata', name: 'Insert Label Metadata', hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'L' }], editorCallback: editor => insertLabelMetadata(editor) });
@@ -386,10 +441,14 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       plugin.addSettingTab(new (settingsClass(api, this))(plugin.app, plugin));
     },
     /** Prevent new work and suppress late UI updates while clients finish bounded shutdown. */
-    dispose() { this.disposed = true; this.controller.dispose(); this.scheduler.dispose(); },
+    dispose() { this.disposed = true; this.explanations.dispose(); this.explanationUnsubscribe?.(); this.controller.dispose(); this.scheduler.dispose(); },
   };
   runtime.controller = new BuildController({ sourceStore: sources, configuration: () => runtime.configuration(), createClient: config => new ToolchainClient(config) });
   runtime.scheduler = new BuildScheduler(runtime.controller);
+  runtime.explanations = new ExplanationSession({ prepare: (state, signal) => runtime.prepareExplanation(state, signal), dispatch: (packet, signal) => runtime.dispatchExplanation(packet, signal),
+    onChange: state => { runtime.controller.assistance = state; runtime.controller.notify(); } });
+  runtime.controller.assistance = runtime.explanations.state();
+  runtime.explanationUnsubscribe = runtime.controller.subscribe(state => runtime.explanations.observe(state));
   return runtime;
 }
 

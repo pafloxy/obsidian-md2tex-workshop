@@ -141,6 +141,11 @@
 .md2tex-workshop-agent-info,
 .md2tex-workshop-agent-status { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 8px; }
 .md2tex-workshop-agent-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; margin: 6px 0; }
+.md2tex-workshop-output-agent { padding: 14px; overflow: auto; }
+.md2tex-workshop-output-agent label { display: block; margin: 8px 0; }
+.md2tex-workshop-output-agent input[type="text"] { display: block; width: 100%; box-sizing: border-box; }
+.md2tex-workshop-agent-result { max-height: none; }
+.md2tex-workshop-agent-manual { color: var(--text-muted); }
 
 /* Reverse-review patch: prefixes carry meaning without color; theme colors add fast visual scanning. */
 .md2tex-workshop-review { overflow: auto; padding: 12px; }
@@ -157,13 +162,13 @@
 .md2tex-workshop-patch-line { display: block; min-width: max-content; padding: 0 10px; }
 .md2tex-workshop-patch-header-delete,
 .md2tex-workshop-patch-delete {
-  color: var(--text-error);
-  background: color-mix(in srgb, var(--text-error) 14%, transparent);
+  color: var(--text-error, #f26d6d);
+  background: color-mix(in srgb, var(--text-error, #f26d6d) 14%, transparent);
 }
 .md2tex-workshop-patch-header-add,
 .md2tex-workshop-patch-add {
-  color: var(--text-success);
-  background: color-mix(in srgb, var(--text-success) 14%, transparent);
+  color: var(--text-success, #63d471);
+  background: color-mix(in srgb, var(--text-success, #63d471) 14%, transparent);
 }
 .md2tex-workshop-patch-diff-header { color: var(--text-muted); font-weight: 600; }
 .md2tex-workshop-patch-hunk { color: var(--text-accent); background: var(--background-secondary); }

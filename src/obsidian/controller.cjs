@@ -46,7 +46,9 @@ class BuildController {
       stage: this.active?.stage || null, latest: record?.latest || null, lastSuccess: record?.lastSuccess || null,
       current: Boolean(record?.lastSuccess && record.currentHash === record.lastSuccess.source.sha256),
       latestCurrent: Boolean(record?.latest?.source && record.currentHash === record.latest.source.sha256),
-      diagnostic: record?.diagnostic || null, linkedTarget: record?.linkedTarget || null, ...this.scheduling };
+      diagnostic: record?.diagnostic || null, failureRecord: record?.failureRecord || null,
+      failureCurrent: Boolean(record?.diagnostic?.failureRecord && record.currentHash === record.failureSourceHash),
+      linkedTarget: record?.linkedTarget || null, buildGeneration: record?.completed || 0, assistance: this.assistance || null, ...this.scheduling };
   }
 
   /** Follow a selected Markdown note unless explicitly pinned; opening a PDF changes nothing. */
@@ -122,18 +124,21 @@ class BuildController {
     if (!this.target) this.target = file;
     const abort = new AbortController();
     const active = { file, targetPath: file.path, abort, stage: 'capturing' };
+    let skipped = false;
     this.active = active;
     record.publication++;
-    record.diagnostic = null;
     this.notify();
     try {
       // Capture starts before any UI open/await can move the note out of focus.
       const snapshot = await this.sources.capture(file);
+      record.failureSourceHash = snapshot.sha256;
       if (abort.signal.aborted) throw Object.assign(new Error('Build cancelled'), { code: 'BUILD_CANCELLED' });
       const config = this.configuration();
       const requestKey = JSON.stringify([snapshot.sha256, config]);
-      if (skipUnchanged && record.requestKey === requestKey) { await this.freshness(record); return null; }
+      if (skipUnchanged && record.requestKey === requestKey) { skipped = true; await this.freshness(record); return null; }
       record.requestKey = requestKey;
+      record.diagnostic = null;
+      record.failureRecord = null;
       const request = validateBuildRequest({ protocolVersion, kind: 'build', jobId: randomUUID(), documentId: documentId(snapshot.canonicalPath), source: snapshot,
         vaultRoot: this.sources.vaultRoot, outputRoot: config.outputRoot, recipeOverrides: config.recipeOverrides, execution: config.execution });
       const result = await this.createClient(config).invoke(request, { signal: abort.signal,
@@ -143,6 +148,7 @@ class BuildController {
       if (this.disposed || this.active !== active) return result;
       record.publication++;
       record.latest = result.result;
+      record.failureRecord = result.failureRecord || null;
       if (result.result.status === 'success') record.lastSuccess = result.result;
       else if (result.lastSuccessfulResult) record.lastSuccess = result.lastSuccessfulResult;
       record.loaded = true;
@@ -151,8 +157,10 @@ class BuildController {
       return result;
     } catch (error) {
       if (!this.disposed) { record.publication++; record.diagnostic = { code: error.code || 'BUILD_FAILED', message: error.message, ...(error.directory ? { directory: error.directory } : {}), ...(error.failureRecord ? { failureRecord: error.failureRecord } : {}) }; }
+      await this.freshness(record);
       throw error;
     } finally {
+      if (!skipped) record.completed = (record.completed || 0) + 1;
       if (this.active === active) this.active = null;
       this.notify();
     }
