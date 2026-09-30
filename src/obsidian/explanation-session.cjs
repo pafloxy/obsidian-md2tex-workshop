@@ -39,7 +39,7 @@ class ExplanationSession {
     const identity = this.identity(state);
     const changed = identity?.key !== this.current?.identity?.key || identity?.failure !== this.current?.identity?.failure || !this.eligible(state);
     this.current = { state, identity };
-    if (changed && (this.active || this.result)) {
+    if (changed && (this.active || this.result || ['error', 'cancelled'].includes(this.status))) {
       this.cancel(false); this.result = null; this.status = this.enabled ? 'idle' : 'disabled';
       this.message = state.busy ? 'Build running; waiting for its result.' : state.latest?.status === 'success' && state.latest?.target?.status !== 'error'
         ? 'Build succeeded; no explanation needed.' : 'Draft or build changed; rebuild before explaining it.';

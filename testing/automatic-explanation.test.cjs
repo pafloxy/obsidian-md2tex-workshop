@@ -102,6 +102,26 @@ test('provider errors do not repeat automatically; manual retry validates a fres
   await session.request(); assert.equal(calls, 2); assert.equal(session.state().status, 'success');
 });
 
+test('a changed draft or successful build clears stale error and cancelled feedback', async () => {
+  for (const prior of ['error', 'cancelled']) {
+    for (const change of ['edit', 'success', 'switch']) {
+      const f = fixture();
+      const session = new ExplanationSession({ prepare: async () => f.packet, dispatch: async () => { throw new Error('offline'); } });
+      session.configure({ enabled: true, automatic: false }); session.observe(f.state); await session.request();
+      if (prior === 'cancelled') { session.status = 'running'; session.cancel(); }
+      assert.equal(session.state().status, prior);
+      const next = change === 'edit' ? { ...f.state, latestCurrent: false } : change === 'switch'
+        ? { ...f.state, target: { path: 'other.md' }, latest: null, buildGeneration: 0 }
+        : { ...f.state, buildGeneration: 2, latest: { ...f.state.latest, status: 'success' } };
+      session.observe(next);
+      assert.equal(session.state().status, 'idle', `${prior}: ${change}`);
+      assert.equal(session.state().answer, null);
+      assert.doesNotMatch(session.state().message, /offline|retry/i);
+      if (change === 'success') assert.match(session.state().message, /Build succeeded/);
+    }
+  }
+});
+
 test('post-provider evidence read rejects a silent source change and leaves no running indicator', async () => {
   const f = fixture(); let reads = 0;
   const session = new ExplanationSession({ prepare: async () => ++reads === 1 ? f.packet : { ...f.packet, packetId: '0'.repeat(64) }, dispatch: async () => ({ explanation: f.reply }) });

@@ -12,6 +12,8 @@ The Agent tab displays running, suggestion, cancelled, or retry status without b
 
 The response contract accepts at most three evidence-bound edits. Each `before` must match the exact captured source range, overlapping ranges are refused, and truncated excerpts or log text cannot be patch targets. Tool setup, execution, configuration, and target-publication failures cannot propose source edits. A successful PDF with a refused linked-target update is reported as a publication failure, not a syntax failure. Generation checks and a second live-source capture reject delayed replies after edits, note switches, new builds, disable, cancellation, or unload. Provider failures do not loop automatically; Retry explanation is explicit.
 
+Delayed native editor-change or autosave notifications preserve a request only when agreeing open editors synchronously prove that their exact text hash is unchanged. Real or unknown edits revoke advice immediately; subsequent bounded source capture restores currentness only for the latest revision. A successful rebuild clears previous provider error/cancelled feedback.
+
 ## Reproducible web demo
 
 Run from this feature checkout root with Node 24, local TeX tools, and Poppler already available. No npm packages need installation.
@@ -41,3 +43,5 @@ node --test --test-isolation=none --test-concurrency=1 testing/automatic-explana
 ```
 
 Tests cover exact patches, invalid evidence, stale identities, duplicate dispatch, disabled/success/history behavior, cancellation, silent source changes, startup failures, settings rollback, loopback transport, missing providers, malformed replies, output limits, redirects, tool calls, and deadlines. Real Codex and browser evidence must be recorded separately with the selected executable, actual captured packet, and source-preservation check.
+
+Native acceptance was rehearsed on desktop Obsidian 1.13.7 in a fresh disposable vault using the exact three-file candidate and an offline API fixture. It exercised explicit panel opt-in, automatic syntax diagnosis, colored inert patches, retained native PDF renderer/viewer identity across the three tabs, real editor/autosave events, synthetic manual correction and successful rebuild without another call, malformed replies, explicit retry, and stale-error clearing. The vault used an already-installed standalone Node 24 executable; desktop PATH selected unsupported Node 12 until that disposable-vault setting was corrected. This rehearsal is native integration evidence, not human usability acceptance or active-vault deployment.

@@ -62,13 +62,16 @@ class BuildController {
   /** Pin/unpin the current target without starting a build. */
   togglePin() { if (this.target) { this.pinned = !this.pinned; this.notify(); } }
 
-  /** Mark edits, saves and renames as potentially newer; M1 deliberately schedules no builds. */
+  /** Revoke advice on real/unknown edits, preserving only a synchronously proven unchanged editor. Usage: controller.invalidate(file); no build or source write is scheduled. */
   invalidate(file) {
     if (this.disposed || !file) return;
     const record = this.record(file);
     record.revision++;
-    record.currentHash = null;
+    let unchanged = false;
+    try { unchanged = Boolean(record.currentHash && this.sources.editorHash?.(file) === record.currentHash); } catch { /* Conflicting or invalid editors must revoke advice. */ }
+    if (!unchanged) record.currentHash = null;
     this.notify();
+    if (!unchanged) void this.freshness(record).then(() => this.notify());
   }
 
   /** Refresh source currentness without allowing an older asynchronous read to erase an edit. */
