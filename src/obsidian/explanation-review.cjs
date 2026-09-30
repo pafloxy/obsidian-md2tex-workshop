@@ -30,6 +30,36 @@ function capturedContext(evidence, startLine, endLine) {
   return { lines, note: missing.join(' ') };
 }
 
+/** Name a navigable range only inside complete captured Markdown evidence. */
+function sourceLocation(evidence, startLine, endLine) {
+  if (evidence?.kind !== 'source' || evidence.truncated || !Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine)
+    || startLine < evidence.startLine || endLine < startLine || endLine > evidence.endLine) return null;
+  return { evidenceId: evidence.id, startLine, endLine };
+}
+
+/** Split literal advice into text and verified current-note references; never interpret arbitrary Markdown/HTML.
+ * Usage: referenceSegments('See note.md:L2.', 'note.md', [location]); foreign paths stay text.
+ */
+function referenceSegments(text, sourcePath, locations) {
+  if (!sourcePath || !locations.length) return [{ text }];
+  /** Escape the known file name before matching references, so punctuation cannot become regex syntax. */
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const names = [...new Set([sourcePath, sourcePath.split('/').at(-1)])].map(escape).join('|');
+  const pattern = new RegExp('(^|[\\s`(])((?:' + names + '):L([1-9]\\d*)(?:-L?([1-9]\\d*))?)(?=$|[\\s.,;:!?`)])', 'g');
+  const parts = []; let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    const startLine = Number(match[3]), endLine = Number(match[4] || match[3]);
+    const location = locations.find(item => Number.isSafeInteger(startLine) && Number.isSafeInteger(endLine)
+      && startLine >= item.startLine && endLine >= startLine && endLine <= item.endLine);
+    if (!location) continue;
+    const start = match.index + match[1].length;
+    if (start > cursor) parts.push({ text: text.slice(cursor, start) });
+    parts.push({ text: match[2], location: { evidenceId: location.evidenceId, startLine, endLine } }); cursor = start + match[2].length;
+  }
+  if (cursor < text.length || !parts.length) parts.push({ text: text.slice(cursor) });
+  return parts;
+}
+
 /** Validate and group exact matching locations/edits; never infer extra mistakes from raw source. */
 function explanationReview(answer, rawPacket) {
   const packet = validateFailurePacket(rawPacket), reply = validateExplanation(answer.explanation, packet);
@@ -42,19 +72,19 @@ function explanationReview(answer, rawPacket) {
     });
     const reasons = [...new Set([edit.reason, ...locations.map(item => item.reason)])];
     findings.push({ label: locationLabel(evidence.kind, edit.startLine, edit.endLine), reason: reasons.join('\n'),
-      context: capturedContext(evidence, edit.startLine, edit.endLine), edit });
+      context: capturedContext(evidence, edit.startLine, edit.endLine), location: sourceLocation(evidence, edit.startLine, edit.endLine), edit });
   }
   for (const [index, item] of (reply.locations || []).entries()) {
     if (matched.has(index)) continue;
     const evidence = packet.evidence.find(value => value.id === item.evidenceId);
     findings.push({ label: locationLabel(evidence.kind, item.startLine, item.endLine), reason: item.reason,
-      context: capturedContext(evidence, item.startLine, item.endLine), edit: null });
+      context: capturedContext(evidence, item.startLine, item.endLine), location: sourceLocation(evidence, item.startLine, item.endLine), edit: null });
   }
   if (!findings.length) {
     const diagnostic = packet.evidence[0], evidence = packet.evidence.find(item => item.kind === 'source');
     const start = diagnostic.sourceLine, end = diagnostic.sourceEndLine;
     findings.push({ label: start === null ? 'Location not established by captured evidence' : locationLabel('source', start, end),
-      reason: diagnostic.message, context: capturedContext(evidence, start, end), edit: null });
+      reason: diagnostic.message, context: capturedContext(evidence, start, end), location: sourceLocation(evidence, start, end), edit: null });
   }
   const manual = 'Please make any suggested change yourself, then Build again. Advice has not been applied or compiler-tested.';
   const sections = [reply.summary, ...findings.map((finding, index) => [
@@ -67,4 +97,4 @@ function explanationReview(answer, rawPacket) {
   return { summary: reply.summary, findings, suggestions: reply.suggestions.map(item => item.text), manual, text: sections.join('\n\n') };
 }
 
-module.exports = { explanationReview, capturedContext };
+module.exports = { explanationReview, capturedContext, referenceSegments };

@@ -149,6 +149,10 @@
 .md2tex-workshop-agent-manual { color: var(--text-muted); }
 .md2tex-workshop-agent-finding { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 12px; margin: 12px 0; }
 .md2tex-workshop-agent-finding h4 { margin: 0 0 8px; }
+.md2tex-workshop-output-agent button.md2tex-workshop-source-link { display: inline; height: auto; min-height: 0; padding: 0 2px; margin: 0; border: 0; border-radius: 2px; box-shadow: none; background: transparent; color: var(--text-accent, var(--interactive-accent)); font: inherit; text-decoration: underline; cursor: pointer; white-space: normal; overflow-wrap: anywhere; }
+.md2tex-workshop-agent-finding h4 .md2tex-workshop-source-link { margin-left: 8px; }
+.md2tex-workshop-output-agent button.md2tex-workshop-source-link:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; }
+.md2tex-workshop-output-agent button.md2tex-workshop-source-link:disabled { color: var(--text-muted); cursor: default; }
 .md2tex-workshop-agent-section-label { margin: 0 0 8px; font-size: var(--font-ui-smaller); font-weight: 700; line-height: 1.4; }
 .md2tex-workshop-agent-advice { border-left: 3px solid var(--interactive-accent); padding: 8px 12px; margin: 12px 0; font-family: var(--font-interface, system-ui, sans-serif); line-height: 1.5; }
 .md2tex-workshop-agent-advice .md2tex-workshop-agent-section-label { color: var(--text-accent); }

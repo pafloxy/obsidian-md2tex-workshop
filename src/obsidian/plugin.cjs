@@ -198,15 +198,53 @@ function createRuntime(plugin, api, { openPath, writeClipboard, explanationProvi
       if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error('Output does not belong to this note');
       return filename;
     },
-    /** Copy exactly the displayed validated findings after a live-source freshness check. Usage: runtime.copyExplanation(answer, packet). */
-    async copyExplanation(answer, packet) {
-      if (!writeClipboard) throw new Error('Clipboard access is unavailable in this host');
+    /** Revalidate the displayed response and live source without calling a provider or saving a note. */
+    async currentExplanationSnapshot(answer, packet) {
       const current = () => !this.disposed && this.explanations.state().answer === answer && this.explanations.state().packet === packet && this.explanations.state().status === 'success';
-      if (!answer || !packet || !current()) throw new Error('No current agent response to copy. Rebuild or request a fresh explanation.');
+      if (!answer || !packet || !current()) throw new Error('No current agent response. Rebuild or request a fresh explanation.');
       const state = this.controller.state();
       if (!state.target || !this.explanations.eligible(state)) throw new Error('The draft or build changed. Request a fresh explanation.');
       const snapshot = await sources.capture(state.target);
-      if (!current() || this.controller.state().target !== state.target || sourceHash(snapshot.canonicalPath) !== packet.identity.documentId || snapshot.sha256 !== packet.identity.sourceHash) throw new Error('The draft or response changed. Request a fresh explanation.');
+      if (!current() || this.controller.state().target !== state.target || !this.explanations.eligible(this.controller.state())
+        || sourceHash(snapshot.canonicalPath) !== packet.identity.documentId || snapshot.sha256 !== packet.identity.sourceHash) throw new Error('The draft or response changed. Request a fresh explanation.');
+      return { state, snapshot };
+    },
+    /** Focus a verified Markdown range, reusing an editor; no source transaction, save or provider call.
+     * Usage: runtime.openExplanationLocation(answer, packet, finding.location).
+     */
+    async openExplanationLocation(answer, packet, location) {
+      const allowed = explanationReview(answer, packet).findings.map(finding => finding.location).filter(Boolean);
+      if (!location || Object.keys(location).sort().join('|') !== 'endLine|evidenceId|startLine'
+        || !Number.isSafeInteger(location.startLine) || !Number.isSafeInteger(location.endLine)
+        || !allowed.some(item => item.evidenceId === location.evidenceId && location.startLine >= item.startLine
+          && location.endLine >= location.startLine && location.endLine <= item.endLine)) throw new Error('This reference has no verified Markdown location.');
+      const { state, snapshot } = await this.currentExplanationSnapshot(answer, packet);
+      const file = state.target, sourcePath = file.path, lines = snapshot.text.split('\n');
+      if (location.endLine > lines.length) throw new Error('The source range is unavailable. Rebuild before navigating.');
+      if (!(plugin.app.vault.getAbstractFileByPath(sourcePath) instanceof api.TFile)) throw new Error('The source note is no longer in this vault.');
+      const workspace = plugin.app.workspace;
+      const editors = workspace.getLeavesOfType('markdown').filter(leaf => leaf.view instanceof api.MarkdownView && leaf.view.file?.path === sourcePath);
+      const active = workspace.getActiveViewOfType(api.MarkdownView);
+      let leaf = editors.find(item => item.view === active) || editors[0];
+      if (!leaf) {
+        leaf = workspace.getLeaf('tab');
+        await leaf.openFile(file, { active: true, state: { mode: 'source' }, eState: { line: location.startLine - 1 } });
+      } else if (leaf.view.getMode?.() === 'preview') {
+        await leaf.setViewState({ ...leaf.getViewState(), state: { ...leaf.getViewState().state, mode: 'source' } });
+      }
+      await this.currentExplanationSnapshot(answer, packet);
+      await workspace.revealLeaf(leaf);
+      await this.currentExplanationSnapshot(answer, packet);
+      const editor = leaf.view instanceof api.MarkdownView && leaf.view.file?.path === sourcePath ? leaf.view.editor : null;
+      if (!editor || editor.getValue() !== snapshot.text || !editor.setSelection || !editor.scrollIntoView || !editor.focus) throw new Error('The Markdown editor could not be focused safely. Rebuild and try again.');
+      const from = { line: location.startLine - 1, ch: 0 }, to = { line: location.endLine - 1, ch: lines[location.endLine - 1].replace(/\r$/, '').length };
+      editor.setSelection(from, to); editor.scrollIntoView({ from, to }, true); editor.focus();
+      return { sourcePath, startLine: location.startLine, endLine: location.endLine };
+    },
+    /** Copy exactly the displayed validated findings after a live-source freshness check. Usage: runtime.copyExplanation(answer, packet). */
+    async copyExplanation(answer, packet) {
+      if (!writeClipboard) throw new Error('Clipboard access is unavailable in this host');
+      await this.currentExplanationSnapshot(answer, packet);
       const text = explanationReview(answer, packet).text;
       await writeClipboard(text);
       new api.Notice('Copied agent response with line context and manual suggestions.');

@@ -3,7 +3,7 @@
  * Usage: const View = createViewClass(api, runtime); plugin.registerView(type, leaf => new View(leaf));
  */
 const { OutputTabs } = require('./output-tabs.cjs');
-const { explanationReview } = require('./explanation-review.cjs');
+const { explanationReview, referenceSegments } = require('./explanation-review.cjs');
 
 const patchContextLines = 3;
 const patchChangedLineLimit = 400;
@@ -279,7 +279,27 @@ function createViewClass(api, runtime) {
       });
       this.button(configuration, 'Disable assistance', () => runtime.configureExplanation({ explanationEnabled: false }));
     }
-    /** Render validated advice as text and evidence-bound red/green display patches, never an Apply action. */
+    /** Render a keyboard-accessible source reference, retaining the original answer/packet for click-time checks. */
+    sourceReference(parent, text, answer, packet, location) {
+      const link = this.button(parent, text, () => runtime.openExplanationLocation(answer, packet, location));
+      link.addClass('md2tex-workshop-source-link');
+      link.setAttribute('type', 'button');
+      link.setAttribute('aria-label', `Focus ${text} in the Markdown editor`);
+      link.setAttribute('title', 'Open, select and focus the captured Markdown lines; no edit is applied');
+      link.disabled = typeof runtime.openExplanationLocation !== 'function';
+      return link;
+    }
+    /** Keep advice inert while linking only literal references supported by verified Markdown ranges. */
+    referenceText(element, text, answer, packet, locations, sourcePath) {
+      const parts = referenceSegments(text, sourcePath, locations);
+      if (!parts.some(part => part.location)) { element.setText(text); return; }
+      element.empty();
+      for (const part of parts) {
+        if (part.location) this.sourceReference(element, part.text, answer, packet, part.location);
+        else element.createEl('span', { text: part.text });
+      }
+    }
+    /** Render validated advice and source links with evidence-bound display patches, never an Apply action. */
     renderExplanation(answer, packet) {
       this.agentResultEl.setText(''); this.agentPatchEl.empty();
       this.agentDisplayedAnswer = null; this.agentDisplayedPacket = null; this.agentCopyButton.disabled = true;
@@ -287,14 +307,20 @@ function createViewClass(api, runtime) {
       const review = explanationReview(answer, packet);
       this.agentDisplayedAnswer = answer; this.agentDisplayedPacket = packet;
       this.agentCopyButton.disabled = typeof runtime.copyExplanation !== 'function';
-      this.agentResultEl.setText(review.summary);
+      const sourcePath = runtime.controller.state().target?.path;
+      const locations = review.findings.map(finding => finding.location).filter(Boolean);
+      this.referenceText(this.agentResultEl, review.summary, answer, packet, locations, sourcePath);
       for (const [index, finding] of review.findings.entries()) {
         const card = this.agentPatchEl.createDiv({ cls: 'md2tex-workshop-agent-finding' });
-        card.createEl('h4', { text: `Finding ${index + 1} — ${finding.label}` });
+        const heading = card.createEl('h4', { text: `Finding ${index + 1} — ${finding.label}` });
+        if (finding.location && sourcePath) {
+          const { startLine, endLine } = finding.location;
+          this.sourceReference(heading, `${sourcePath}:L${startLine}${endLine === startLine ? '' : `-L${endLine}`}`, answer, packet, finding.location);
+        }
         const advice = card.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
         advice.setAttribute('aria-label', 'Agent advice');
         advice.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice' });
-        advice.createEl('p', { text: finding.reason });
+        this.referenceText(advice.createEl('p'), finding.reason, answer, packet, locations, sourcePath);
         const excerpt = card.createEl('section', { cls: 'md2tex-workshop-agent-excerpt' });
         excerpt.setAttribute('aria-label', 'Captured text — not agent advice');
         excerpt.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: finding.label.startsWith('Compiler log') ? 'Captured compiler log · actual text' : 'Captured Markdown · actual text' });
@@ -317,7 +343,7 @@ function createViewClass(api, runtime) {
       if (review.suggestions.length) {
         const next = this.agentPatchEl.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
         next.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice · next steps' });
-        for (const suggestion of review.suggestions) next.createEl('p', { text: suggestion });
+        for (const suggestion of review.suggestions) this.referenceText(next.createEl('p'), suggestion, answer, packet, locations, sourcePath);
       }
       this.agentPatchEl.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: review.manual });
     }
