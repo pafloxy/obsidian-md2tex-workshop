@@ -222,7 +222,8 @@ function createViewClass(api, runtime) {
       this.agentGuardButton.hidden = Boolean(runtime.explanations);
       this.agentStatusEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-status' });
       this.agentStatusEl.setAttribute('role', 'status');
-      this.agentResultEl = this.agentEl.createEl('pre', { cls: 'md2tex-workshop-agent-result' });
+      this.agentResultEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-result' });
+      this.agentResultEl.setAttribute('aria-label', 'Agent advice — diagnosis');
       this.agentPatchEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-patches' });
       this.detailsEl = this.disclosure(root, 'Details and diagnostics');
       const summary = this.detailsEl.createDiv({ cls: 'md2tex-workshop-summary' });
@@ -290,21 +291,34 @@ function createViewClass(api, runtime) {
       for (const [index, finding] of review.findings.entries()) {
         const card = this.agentPatchEl.createDiv({ cls: 'md2tex-workshop-agent-finding' });
         card.createEl('h4', { text: `Finding ${index + 1} — ${finding.label}` });
-        card.createEl('p', { text: finding.reason });
-        const context = card.createEl('pre', { cls: 'md2tex-workshop-agent-context' });
+        const advice = card.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
+        advice.setAttribute('aria-label', 'Agent advice');
+        advice.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice' });
+        advice.createEl('p', { text: finding.reason });
+        const excerpt = card.createEl('section', { cls: 'md2tex-workshop-agent-excerpt' });
+        excerpt.setAttribute('aria-label', 'Captured text — not agent advice');
+        excerpt.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: finding.label.startsWith('Compiler log') ? 'Captured compiler log · actual text' : 'Captured Markdown · actual text' });
+        const context = excerpt.createEl('pre', { cls: 'md2tex-workshop-agent-context' });
         context.setAttribute('aria-label', 'Captured context. Highlighted lines are affected; numbers are absolute source or log lines.');
         for (const line of finding.context.lines) context.createEl('span', { cls: line.affected ? 'md2tex-workshop-agent-fault' : '', text: `${line.affected ? '>' : ' '} ${line.number ?? '…'} | ${line.text}\n` });
-        if (finding.context.note) card.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: finding.context.note });
+        if (finding.context.note) excerpt.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: finding.context.note });
         const edit = finding.edit;
-        if (!edit) { card.createEl('p', { text: 'No verified patch for this location. Follow the diagnosis and check manually.' }); continue; }
-        card.createEl('p', { text: 'Suggested change — please edit your note:' });
-        const pre = card.createEl('pre', { cls: 'md2tex-workshop-patch' });
+        if (!edit) { advice.createEl('p', { text: 'No suggested edit for this location. Follow the diagnosis and check manually.' }); continue; }
+        const proposed = card.createEl('section', { cls: 'md2tex-workshop-agent-proposal' });
+        proposed.setAttribute('aria-label', 'Suggested edit — not applied');
+        proposed.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Suggested edit · not applied' });
+        proposed.createEl('p', { text: 'Please make this change yourself, then Build again.' });
+        const pre = proposed.createEl('pre', { cls: 'md2tex-workshop-patch' });
         pre.setAttribute('aria-label', 'Suggested manual patch. Removed lines start with minus; added lines start with plus.');
         const diff = createUnifiedDiff(edit.before + '\n', edit.after ? edit.after + '\n' : '');
         for (const line of diff.lines) if (line.kind === 'hunk') line.text = line.text.replace(/@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@/, (_match, old, oldCount = '', next, nextCount = '') => `@@ -${Number(old) + edit.startLine - 1}${oldCount} +${Number(next) + edit.startLine - 1}${nextCount} @@`);
         renderUnifiedDiff(pre, diff);
       }
-      for (const suggestion of review.suggestions) this.agentPatchEl.createEl('p', { text: `Next action: ${suggestion}` });
+      if (review.suggestions.length) {
+        const next = this.agentPatchEl.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
+        next.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice · next steps' });
+        for (const suggestion of review.suggestions) next.createEl('p', { text: suggestion });
+      }
       this.agentPatchEl.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: review.manual });
     }
     /** Request one read-only explanation; discard replies if the build or editor revision changes. */

@@ -144,11 +144,20 @@
 .md2tex-workshop-output-agent { padding: 14px; overflow: auto; }
 .md2tex-workshop-output-agent label { display: block; margin: 8px 0; }
 .md2tex-workshop-output-agent input[type="text"] { display: block; width: 100%; box-sizing: border-box; }
-.md2tex-workshop-agent-result { max-height: none; }
+.md2tex-workshop-agent-result { max-height: none; padding: 12px; border-left: 3px solid var(--interactive-accent); background: color-mix(in srgb, var(--interactive-accent) 8%, transparent); font-family: var(--font-interface, system-ui, sans-serif); line-height: 1.5; }
+.md2tex-workshop-agent-result:not(:empty)::before { content: 'Agent advice · diagnosis'; display: block; margin-bottom: 6px; font-size: var(--font-ui-smaller); font-weight: 700; color: var(--text-accent); }
 .md2tex-workshop-agent-manual { color: var(--text-muted); }
 .md2tex-workshop-agent-finding { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 12px; margin: 12px 0; }
 .md2tex-workshop-agent-finding h4 { margin: 0 0 8px; }
-.md2tex-workshop-agent-context { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--background-secondary); padding: 8px; }
+.md2tex-workshop-agent-section-label { margin: 0 0 8px; font-size: var(--font-ui-smaller); font-weight: 700; line-height: 1.4; }
+.md2tex-workshop-agent-advice { border-left: 3px solid var(--interactive-accent); padding: 8px 12px; margin: 12px 0; font-family: var(--font-interface, system-ui, sans-serif); line-height: 1.5; }
+.md2tex-workshop-agent-advice .md2tex-workshop-agent-section-label { color: var(--text-accent); }
+.md2tex-workshop-agent-advice p { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.md2tex-workshop-agent-excerpt { border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-secondary, var(--background-primary)); margin: 14px 0; padding: 12px; }
+.md2tex-workshop-agent-excerpt .md2tex-workshop-agent-section-label { color: var(--text-muted); }
+.md2tex-workshop-agent-context { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-monospace, monospace); font-size: 12px; line-height: 1.6; }
+.md2tex-workshop-agent-proposal { border-top: 1px dashed var(--background-modifier-border); margin-top: 16px; padding-top: 14px; }
+.md2tex-workshop-agent-proposal p { margin: 0 0 8px; }
 .md2tex-workshop-agent-fault { color: var(--text-error); background: rgba(230, 80, 80, 0.12); }
 
 /* Reverse-review patch: prefixes carry meaning without color; theme colors add fast visual scanning. */
