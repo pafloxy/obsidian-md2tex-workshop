@@ -1,6 +1,6 @@
 # Explanation response contract
 
-The CLI validates a reply against one captured failure packet. This deterministic validator makes no provider call or source edit. A separate, explicitly approved [manual local-agent bridge](agent-bridge.md) can supply an untrusted candidate reply; automatic dispatch and the chat panel are not yet enabled. See [failure packets](failure-packets.md) for evidence preparation and [authoring](authoring.md) for the supported Markdown subset.
+The CLI validates a reply against one captured failure packet. This deterministic validator makes no provider call or source edit. An explicitly approved [manual local-agent bridge](agent-bridge.md) or the opt-in [automatic Agent panel](automatic-explanations.md) supplies an untrusted candidate reply. See [failure packets](failure-packets.md) for evidence preparation and [authoring](authoring.md) for the supported Markdown subset.
 
 ## Local workflow
 
@@ -37,7 +37,9 @@ Copy identity values from the expected packet. The placeholder strings below are
 
 Every shown field is required. Additional fields are refused at every response level. `verdict` is exactly `explained`, `uncertain` or `needs-human`. Summary text is nonempty and at most 1200 UTF-8 bytes. Supply zero to three suggestions, each with nonempty text of at most 600 UTF-8 bytes. Each evidence list contains one to three distinct IDs from the supplied packet. Text must be valid Unicode without NUL. The whole serialized response must fit 8192 bytes.
 
-`packetId`, `failureId` and `sourceHash` must match the expected packet exactly; disagreement yields `STALE_EXPLANATION`. Unknown/duplicate evidence references, invalid enums and extra command/path/patch fields are refused. Packet shape, phase semantics and canonical digest are revalidated before accepting a reply. Object-key order is irrelevant; array order is significant. The programmatic validator returns a deeply frozen copy.
+`packetId`, `failureId` and `sourceHash` must match the expected packet exactly; disagreement yields `STALE_EXPLANATION`. Unknown/duplicate evidence references, invalid enums and extra command/path fields are refused. Version 1 still refuses patch fields. Packet shape, phase semantics and canonical digest are revalidated before accepting a reply. Object-key order is irrelevant; array order is significant. The programmatic validator returns a deeply frozen copy.
+
+Version `workshop-explanation.v2` retains every version 1 field and requires `locations` and `edits` arrays, each containing zero to three entries. A location is exactly `{evidenceId,startLine,endLine,reason}` and must stay inside a supplied source or log excerpt. An edit is exactly `{evidenceId,startLine,endLine,before,after,reason}`; its target must be a complete, nontruncated source excerpt, its `before` must match the captured line slice exactly, and its nonidentical `after` is limited to 4096 UTF-8 bytes, as is `before`. Ranges cannot overlap. Tool-setup, execution, configuration, and target-publication categories forbid source edits. These fields provide inert review suggestions, not file paths or executable patch authority. The fixed provider prompt and Codex output schema request version 2; validated legacy version 1 replies remain displayable.
 
 ## Instructions for an explanation consumer
 
@@ -53,7 +55,7 @@ These instructions constrain intended behavior, not operating-system permissions
 
 A validator cannot establish whether an old packet is still current by looking at that packet alone. The caller must retain its expected packet outside the provider response and compare source/job identity with current editor state before showing advice as current. Selecting an old packet explicitly will correctly validate an old matching response. Packet hashes establish internal consistency, not publisher authentication. A party controlling both packet and response can forge a matching pair.
 
-Packets use version 2 because startup failures require a separate real job identity and nullable attempt identity. Regenerate version 1 packets from retained evidence. `failureId` excludes per-job/per-attempt IDs to support later deduplication; no automatic dispatch or deduplication policy is implemented here.
+Packets use version 2 because startup failures require a separate real job identity and nullable attempt identity. Regenerate version 1 packets from retained evidence. `failureId` excludes per-job/per-attempt IDs. The response validator itself does not dispatch; the Agent session deduplicates automatic calls by selected note and completed build generation and checks live evidence again after the provider returns.
 
 ## Verification
 

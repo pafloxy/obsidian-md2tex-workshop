@@ -75,6 +75,18 @@ test('PDF/log toggles preserve renderer identity, cached log and keyboard tab st
   f.output.dispose(); assert.equal(f.children.size, 0);
 });
 
+test('Agent shares the output area and keyboard cycle while preserving PDF scroll and renderer', async () => {
+  const f = fixture(); f.output.update(state()); await settle();
+  const node = { scrollTop: 220, scrollLeft: 7 }; f.output.pdfPanel.querySelector = () => node;
+  f.output.select('agent'); assert.equal(f.output.agentPanel.hidden, false); assert.equal(f.output.logPanel.hidden, true);
+  f.output.agentPanel.createEl('p', { text: 'Manual advice' });
+  f.output.agentButton.events.keydown({ key: 'ArrowRight', preventDefault() {} });
+  assert.equal(f.output.mode, 'pdf'); assert.equal(node.scrollTop, 220); assert.equal(f.rendered.length, 1);
+  f.output.pdfButton.events.keydown({ key: 'End', preventDefault() {} }); assert.equal(f.output.mode, 'agent');
+  assert.equal(f.output.agentPanel.children[0].text, 'Manual advice');
+  f.output.dispose();
+});
+
 test('native resize adjustments after showing PDF cannot move the saved scroll position', async () => {
   const f = fixture(); f.output.update(state()); await settle();
   const node = { scrollTop: 120, scrollLeft: 12 }; const frames = [];

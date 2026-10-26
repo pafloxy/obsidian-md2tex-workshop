@@ -42,9 +42,11 @@ Changed anchors, stale previews, conflicting edits, missing slot pointers, and u
 
 This is a bounded editing workflow, not automatic synchronization or an arbitrary-manuscript importer. Read [the workflow explanation](docs/explanations.md), [round-trip guarantees](docs/roundtrip.md), and [linked-target contract](docs/linked-tex.md) for the precise scope.
 
-## Try the source checkout
+## Try the desktop beta or source checkout
 
-Version 0.1.3 is a Linux-first beta candidate. A matching hosted BRAT release has not been published; the latest public release is the older source-only v0.1.0. Local packaging and native testing do not establish the hosted installation path.
+The Linux-first desktop beta [0.1.3](https://github.com/pafloxy/obsidian-md2tex-workshop/releases/tag/0.1.3) is published with `main.js`, `manifest.json`, and `styles.css`. In BRAT 1.1.0 or newer, add `pafloxy/obsidian-md2tex-workshop` and freeze the version to `0.1.3` for a reproducible trial in a disposable vault. GitHub's latest stable release still points to the older source-only `v0.1.0`; use the exact beta link. See [installation instructions and release limits](docs/releases/0.1.3-brat.md).
+
+The hosted assets are available, but installation through BRAT, enable/reload, and the current UI's core workflows still need fresh native Obsidian acceptance. This beta is desktop Linux only; macOS, Windows, and mobile worker execution are unsupported. The declared minimum Obsidian 1.7.2 has not been natively validated. Node.js 24+, `latexmk`, a TeX engine and the recipe's TeX packages are external prerequisites; the plugin does not install them.
 
 With **Node.js 24+**, `latexmk`, and the TeX packages used by the selected recipe, run these commands from the repository root:
 

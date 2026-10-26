@@ -15,7 +15,156 @@ const { execute } = require('./execute.cjs');
 const { createRuntime, resolvePanelBibliography } = require('../src/obsidian/plugin.cjs');
 const { createViewClass, createReviewClass, createUnifiedDiff } = require('../src/obsidian/view.cjs');
 const { sourceHash } = require('../src/core/protocol.cjs');
+const { sealPacket, packetVersion, reviewVersion } = require('../src/core/explanation-contract.cjs');
 const root = path.resolve(__dirname, '..');
+
+test('Agent cards show numbered context and copy a fresh complete response without writing source', async t => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const dir = await fs.mkdtemp(path.join(root, 'tmp/agent-review-'));
+  const filePath = path.join(dir, 'note.md'), source = 'Before.\n\\fracc{1}{2}\nAfter.\n';
+  await fs.writeFile(filePath, source);
+  const packet = sealPacket({ schemaVersion: packetVersion, command: 'failure-packet', status: 'success', scope: 'explanation-only', origin: 'attempt', buildStatus: 'error',
+    identity: { documentId: sourceHash(filePath), sourceHash: sourceHash(source), recipeFingerprint: null, converterHash: null, toolchainFingerprint: null,
+      resolvedRecipeHash: null, attemptId: 'copy-test', jobId: null, failureId: '' }, category: 'tex', summary: 'Undefined control sequence',
+    primaryEvidenceId: 'diagnostic-1', evidence: [
+      { id: 'diagnostic-1', kind: 'diagnostic', code: 'LATEX_ERROR', stage: 'compilation', message: 'Undefined command', sourceLine: 2, sourceEndLine: 2 },
+      { id: 'source-1', kind: 'source', startLine: 1, endLine: 3, text: source.slice(0, -1), truncated: false }], omittedDiagnostics: 0, omissions: [] });
+  const explanation = { schemaVersion: reviewVersion, packetId: packet.packetId, failureId: packet.identity.failureId, sourceHash: packet.identity.sourceHash,
+    verdict: 'explained', summary: '<literal> Unknown fraction command.', evidenceIds: ['diagnostic-1', 'source-1'], suggestions: [],
+    locations: [{ evidenceId: 'source-1', startLine: 2, endLine: 2, reason: 'Misspelled control word.' }],
+    edits: [{ evidenceId: 'source-1', startLine: 2, endLine: 2, before: '\\fracc{1}{2}', after: '\\frac{1}{2}', reason: 'Misspelled control word.' }] };
+  const value = host(dir, {}), plugin = new value.api.Plugin();
+  const file = new value.api.TFile('note.md'), editor = new value.api.MarkdownView(file, source);
+  value.leaves.push({ view: editor });
+  let calls = 0, clipboardFailure = false;
+  const runtime = createRuntime(plugin, value.api, { prepareFailure: async () => packet,
+    explanationProvider: async () => { calls++; return { explanation }; },
+    writeClipboard: text => { if (clipboardFailure) throw new Error('Synthetic clipboard denied'); value.copied.push(text); } });
+  t.after(() => runtime.dispose());
+  const state = { target: file, busy: false, latestCurrent: true, latest: { status: 'error', attemptId: 'copy-test' }, buildGeneration: 1 };
+  runtime.controller.state = () => ({ ...state, assistance: runtime.explanations.state() });
+  runtime.controller.notify = () => {};
+  runtime.controller.subscribe = callback => { callback(runtime.controller.state()); return () => {}; };
+  runtime.controller.inspect = async () => {}; runtime.controller.refreshTarget = async () => {};
+  runtime.settings.explanationEnabled = true;
+  runtime.explanations.configure({ enabled: true, automatic: false }); runtime.explanations.observe(state);
+  const View = createViewClass(value.api, runtime), view = new View({}); await view.onOpen();
+  assert.equal(view.agentCopyButton.disabled, true);
+  await runtime.explanations.request(); view.render(runtime.controller.state());
+  assert.equal(view.agentCopyButton.disabled, false); assert.equal(view.agentResultEl.text, explanation.summary);
+  const card = view.agentPatchEl.children.find(child => child.className === 'md2tex-workshop-agent-finding');
+  assert.match(card.children[0].text, /Finding 1 — Markdown line 2/);
+  assert.equal(view.agentResultEl.tag, 'div'); assert.equal(view.agentResultEl['aria-label'], 'Agent advice — diagnosis');
+  const advice = card.children.find(child => child.className === 'md2tex-workshop-agent-advice');
+  assert.equal(advice.children[0].text, 'Agent advice'); assert.equal(advice.children[1].text, 'Misspelled control word.');
+  const excerpt = card.children.find(child => child.className === 'md2tex-workshop-agent-excerpt');
+  assert.equal(excerpt['aria-label'], 'Captured text — not agent advice'); assert.equal(excerpt.children[0].text, 'Captured Markdown · actual text');
+  const context = excerpt.children.find(child => child.className === 'md2tex-workshop-agent-context');
+  assert.match(context.children.map(child => child.text).join(''), /1 \| Before\.[\s\S]*> 2 \| \\fracc[\s\S]*3 \| After\./);
+  assert.ok(context.children.some(child => child.className === 'md2tex-workshop-agent-fault'));
+  const proposed = card.children.find(child => child.className === 'md2tex-workshop-agent-proposal');
+  assert.equal(proposed.children[0].text, 'Suggested edit · not applied'); assert.equal(proposed['aria-label'], 'Suggested edit — not applied');
+  assert.equal(advice.children.some(child => child.tag === 'pre'), false);
+  const patch = proposed.children.find(child => child.className === 'md2tex-workshop-patch');
+  assert.ok(patch.children.some(child => /patch-delete/.test(child.className))); assert.ok(patch.children.some(child => /patch-add/.test(child.className)));
+  const reference = card.children[0].children.find(child => child.tag === 'button');
+  assert.equal(reference.text, 'note.md:L2'); assert.equal(reference.type, 'button');
+  assert.equal(reference.disabled, false); await reference.events.click();
+  assert.deepEqual(editor.selection, { from: { line: 1, ch: 0 }, to: { line: 1, ch: 12 } });
+  assert.equal(editor.focused, true); assert.equal(editor.scroll.center, true);
+  assert.equal(value.opened.length, 0, 'reuse the open editor instead of creating another tab');
+  await view.agentCopyButton.events.click(); assert.equal(value.copied.length, 1);
+  assert.match(value.copied[0], /Finding 1[\s\S]*Before\.[\s\S]*- \\fracc[\s\S]*\+ \\frac[\s\S]*yourself/);
+  assert.equal(calls, 1); assert.equal(await fs.readFile(filePath, 'utf8'), source); assert.equal(editor.transactions.length, 0);
+  const { answer, packet: displayed } = runtime.explanations.state();
+  await assert.rejects(() => runtime.openExplanationLocation(answer, displayed, { evidenceId: 'source-1', startLine: 1, endLine: 1 }), /verified Markdown/);
+  await assert.rejects(() => runtime.openExplanationLocation(answer, displayed, { evidenceId: 'log-1', startLine: 2, endLine: 2 }), /verified Markdown/);
+  await assert.rejects(() => runtime.openExplanationLocation(answer, displayed, { evidenceId: 'source-1', startLine: 2, endLine: 2, path: '../other.md' }), /verified Markdown/);
+  clipboardFailure = true; await assert.rejects(() => runtime.copyExplanation(answer, displayed), /clipboard denied/); clipboardFailure = false;
+  editor.text += 'Changed.'; await assert.rejects(() => runtime.copyExplanation(answer, displayed), /draft or response changed/i); assert.equal(value.copied.length, 1);
+  await assert.rejects(() => runtime.openExplanationLocation(answer, displayed, { evidenceId: 'source-1', startLine: 2, endLine: 2 }), /draft or response changed/i);
+  runtime.explanations.cancel(false); runtime.explanations.result = null; view.render(runtime.controller.state());
+  assert.equal(view.agentCopyButton.disabled, true); assert.equal(view.agentPatchEl.children.length, 0);
+  await assert.rejects(() => runtime.copyExplanation(answer, displayed), /No current agent response/);
+  await assert.rejects(() => runtime.openExplanationLocation(answer, displayed, { evidenceId: 'source-1', startLine: 2, endLine: 2 }), /No current agent response/);
+  await view.onClose();
+});
+
+/** Prepare a current synthetic response for navigation-only tests; usage: await navigationHost(t, false) for a closed note. */
+async function navigationHost(t, open = true) {
+  const dir = await fs.mkdtemp(path.join(root, 'tmp/agent-navigation-'));
+  const source = 'Before.\n\\fracc{1}{2}\nAfter.\n', filename = path.join(dir, 'note.md');
+  await fs.writeFile(filename, source);
+  const packet = sealPacket({ schemaVersion: packetVersion, command: 'failure-packet', status: 'success', scope: 'explanation-only', origin: 'attempt', buildStatus: 'error',
+    identity: { documentId: sourceHash(filename), sourceHash: sourceHash(source), recipeFingerprint: null, converterHash: null, toolchainFingerprint: null, resolvedRecipeHash: null, attemptId: 'navigate-test', jobId: null, failureId: '' },
+    category: 'tex', summary: 'Undefined control sequence', primaryEvidenceId: 'diagnostic-1', evidence: [
+      { id: 'diagnostic-1', kind: 'diagnostic', code: 'LATEX_ERROR', stage: 'compilation', message: 'Undefined command', sourceLine: 2, sourceEndLine: 3 },
+      { id: 'source-1', kind: 'source', startLine: 1, endLine: 3, text: source.slice(0, -1), truncated: false }], omittedDiagnostics: 0, omissions: [] });
+  const explanation = { schemaVersion: reviewVersion, packetId: packet.packetId, failureId: packet.identity.failureId, sourceHash: packet.identity.sourceHash, verdict: 'explained',
+    summary: 'Go to note.md:L2, not other.md:L2 or note.md:L99. <script>quoted</script>', evidenceIds: ['source-1'], suggestions: [{ text: 'Inspect note.md:L2-L3.', evidenceIds: ['source-1'] }],
+    locations: [{ evidenceId: 'source-1', startLine: 2, endLine: 3, reason: 'Inspect note.md:L2.' }], edits: [] };
+  const value = host(dir), file = new value.api.TFile('note.md'), editor = new value.api.MarkdownView(file, source);
+  const leaf = { view: editor }; if (open) { value.leaves.push(leaf); value.app.workspace.active = leaf; }
+  let calls = 0;
+  const runtime = createRuntime(new value.api.Plugin(), value.api, { prepareFailure: async () => packet, explanationProvider: async () => { calls++; return { explanation }; } });
+  t.after(() => runtime.dispose());
+  const state = { target: file, busy: false, latestCurrent: true, latest: { status: 'error', attemptId: 'navigate-test' }, buildGeneration: 1 };
+  runtime.controller.state = () => ({ ...state, assistance: runtime.explanations.state() }); runtime.controller.notify = () => {};
+  runtime.controller.subscribe = callback => { callback(runtime.controller.state()); return () => {}; };
+  runtime.controller.inspect = async () => {}; runtime.controller.refreshTarget = async () => {};
+  runtime.settings.explanationEnabled = true;
+  runtime.explanations.configure({ enabled: true, automatic: false }); runtime.explanations.observe(state); await runtime.explanations.request();
+  const { answer, packet: displayed } = runtime.explanations.state(), location = { evidenceId: 'source-1', startLine: 2, endLine: 3 };
+  return { ...value, runtime, state, file, editor, leaf, source, filename, answer, displayed, location, calls: () => calls };
+}
+
+test('Agent navigation preserves exact text across inline clicks, closed/preview notes and async races', async t => {
+  await t.test('inline references and range headers focus without a source transaction or provider call', async t => {
+    const f = await navigationHost(t), View = createViewClass(f.api, f.runtime), view = new View({}); await view.onOpen();
+    const links = view.agentResultEl.children.filter(child => child.tag === 'button');
+    assert.deepEqual(links.map(link => link.text), ['note.md:L2']);
+    assert.match(view.agentResultEl.children.map(child => child.text).join(''), /other\.md:L2 or note\.md:L99\. <script>quoted<\/script>/);
+    await links[0].events.click(); assert.deepEqual(f.editor.selection, { from: { line: 1, ch: 0 }, to: { line: 1, ch: 12 } });
+    const heading = view.agentPatchEl.children.find(child => child.className === 'md2tex-workshop-agent-finding').children[0];
+    assert.equal(heading.children[0].text, 'note.md:L2-L3'); await heading.children[0].events.click();
+    assert.deepEqual(f.editor.selection.to, { line: 2, ch: 6 });
+    assert.equal(f.calls(), 1); assert.equal(f.editor.transactions.length, 0); assert.equal(await fs.readFile(f.filename, 'utf8'), f.source);
+    f.state.latestCurrent = false; const selection = f.editor.selection; await links[0].events.click();
+    assert.equal(f.editor.selection, selection); assert.match(f.notices.at(-1), /draft or build changed/i); await view.onClose();
+  });
+  await t.test('a closed note opens in source mode and selects the exact line range', async t => {
+    const f = await navigationHost(t, false);
+    f.app.workspace.getLeaf = type => ({
+      /** Model the actual asynchronous host open without changing saved source. */
+      async openFile(file, options) { f.opened.push({ type, file, options }); this.view = new f.api.MarkdownView(file, await fs.readFile(f.filename, 'utf8')); f.leaves.push(this); },
+    });
+    await f.runtime.openExplanationLocation(f.answer, f.displayed, f.location);
+    assert.equal(f.opened.length, 1); assert.equal(f.opened[0].options.state.mode, 'source'); assert.equal(f.opened[0].options.eState.line, 1);
+    assert.equal(f.leaves[0].view.focused, true); assert.deepEqual(f.leaves[0].view.selection.to, { line: 2, ch: 6 });
+    assert.equal(await fs.readFile(f.filename, 'utf8'), f.source); assert.equal(f.calls(), 1);
+  });
+  await t.test('a reading-mode leaf is reused and switched without reloading its text', async t => {
+    const f = await navigationHost(t); let mode = 'preview';
+    f.editor.getMode = () => mode; f.leaf.getViewState = () => ({ type: 'markdown', state: { file: f.file.path, mode } });
+    f.leaf.setViewState = async state => { mode = state.state.mode; };
+    await f.runtime.openExplanationLocation(f.answer, f.displayed, f.location);
+    assert.equal(mode, 'source'); assert.equal(f.opened.length, 0); assert.equal(f.editor.text, f.source); assert.equal(f.editor.focused, true);
+  });
+  await t.test('an edit during reveal is refused before selection/focus', async t => {
+    const f = await navigationHost(t);
+    f.app.workspace.revealLeaf = async () => { f.editor.text += 'Concurrent edit.'; };
+    await assert.rejects(() => f.runtime.openExplanationLocation(f.answer, f.displayed, f.location), /draft or response changed/i);
+    assert.equal(f.editor.selection, undefined); assert.equal(f.editor.focused, undefined); assert.equal(f.calls(), 1);
+  });
+  await t.test('missing notes and conflicting editor buffers never focus another note', async t => {
+    const f = await navigationHost(t); const lookup = f.app.vault.getAbstractFileByPath;
+    f.app.vault.getAbstractFileByPath = () => null;
+    await assert.rejects(() => f.runtime.openExplanationLocation(f.answer, f.displayed, f.location), /no longer in this vault/);
+    f.app.vault.getAbstractFileByPath = lookup; f.leaves.push({ view: new f.api.MarkdownView(f.file, 'Different buffer.') });
+    await assert.rejects(() => f.runtime.openExplanationLocation(f.answer, f.displayed, f.location), /different text/);
+    assert.equal(f.editor.selection, undefined); assert.equal(f.opened.length, 0);
+  });
+});
 
 /** Store only the DOM operations used by the presentation module. */
 class Element {
@@ -24,7 +173,7 @@ class Element {
   /** Remove only this test element's child list. */
   empty() { this.children = []; this.emptyCount++; }
   /** Accept host styling without making a renderer claim. */
-  addClass() {}
+  addClass(...names) { this.className = [this.className || '', ...names].filter(Boolean).join(' '); }
   /** Create and retain a test child. */
   createEl(tag, options = {}) { const child = new Element(); child.tag = tag; child.text = options.text || ''; child.className = options.cls || ''; this.children.push(child); return child; }
   /** Create a div using the same host signature. */
@@ -83,6 +232,9 @@ function host(vaultRoot, saved) {
           this.cursor = this.editor.offsetToPos(start + inserted.length);
         },
         setCursor: position => { this.cursor = { ...position }; },
+        setSelection: (from, to) => { this.selection = { from, to }; this.cursor = { ...from }; },
+        scrollIntoView: (range, center) => { this.scroll = { range, center }; },
+        focus: () => { this.focused = true; },
         transaction: (change, origin) => { this.undo.push(this.text); this.transactions.push({ change, origin }); this.text = change.changes[0].text; },
       };
     }
@@ -311,6 +463,46 @@ test('panel bibliography defaults accept only verified vault-local bib files', a
   } finally { runtime.dispose(); }
 });
 
+for (const kind of ['syntax', 'worker-startup']) test(`runtime automatically explains captured ${kind} evidence without writing the note`, async () => {
+  await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
+  const vaultRoot = await fs.mkdtemp(path.join(root, 'tmp/automatic-host-'));
+  const source = '# Draft\n\n![Plot](missing.png)\n';
+  await fs.writeFile(path.join(vaultRoot, 'draft.md'), source);
+  const value = host(vaultRoot, { nodeCommand: kind === 'syntax' ? process.execPath : path.join(vaultRoot, 'missing-node') });
+  const file = new value.api.TFile('draft.md'); const editor = new value.api.MarkdownView(file, source);
+  value.leaves.push({ view: editor }); value.app.workspace.active = value.leaves[0];
+  const plugin = new value.api.Plugin(); let calls = 0;
+  const runtime = createRuntime(plugin, value.api, { explanationProvider: async packet => {
+    calls++;
+    return { explanation: { schemaVersion: 'workshop-explanation.v2', packetId: packet.packetId, failureId: packet.identity.failureId,
+      sourceHash: packet.identity.sourceHash, verdict: 'needs-human', summary: packet.summary, evidenceIds: ['diagnostic-1'], suggestions: [], locations: [], edits: [] } };
+  } });
+  try {
+    await runtime.start(); assert.equal(plugin.saves, 0); assert.equal(calls, 0);
+    await runtime.configureExplanation({ explanationEnabled: true });
+    if (kind === 'worker-startup') await assert.rejects(runtime.build(), { code: 'NODE_UNAVAILABLE' });
+    else await runtime.build();
+    await until(() => ['success', 'error'].includes(runtime.explanations.state().status));
+    assert.equal(runtime.explanations.state().status, 'success', runtime.explanations.state().message);
+    assert.equal(calls, 1); runtime.controller.notify(); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
+    assert.equal(runtime.explanations.state().packet.identity.sourceHash, sourceHash(source));
+    const generation = runtime.controller.state().buildGeneration;
+    assert.equal(await runtime.controller.compile(file, { skipUnchanged: true }), null);
+    assert.equal(runtime.controller.state().buildGeneration, generation);
+    assert.equal(calls, 1, 'a skipped unchanged build is not a fresh failure');
+    assert.equal(await fs.readFile(path.join(vaultRoot, 'draft.md'), 'utf8'), source);
+    assert.equal(editor.text, source); assert.equal(editor.transactions.length, 0);
+    editor.text += '\nChanged silently.\n';
+    await runtime.explanations.request();
+    assert.equal(runtime.explanations.state().answer, null); assert.match(runtime.explanations.state().message, /STALE_EXPLANATION/);
+    assert.equal(calls, 1, 'freshness refusal happens before another provider call');
+    await assert.rejects(runtime.configureExplanation({ explanationEnabled: 'true' }), /true or false/);
+    plugin.saveData = async () => { throw new Error('settings unavailable'); };
+    await assert.rejects(runtime.configureExplanation({ explanationEnabled: false }), /settings unavailable/);
+    assert.equal(runtime.explanations.state().enabled, true, 'failed settings persistence restores prior policy');
+  } finally { runtime.dispose(); }
+});
+
 test('shared explanation pane requires a current failure and discards stale replies', async () => {
   const value = host(path.join(root, 'tmp/explanation-pane-vault'), {});
   const first = { status: 'error', diagnostics: [{ severity: 'error', message: 'Unsupported image' }] };
@@ -326,9 +518,9 @@ test('shared explanation pane requires a current failure and discards stale repl
   const View = createViewClass(value.api, runtime);
   const view = new View({});
   await view.onOpen();
-  assert.equal(view.agentEl.open, false);
-  assert.ok(view.contentEl.children.indexOf(view.output.root) < view.contentEl.children.indexOf(view.agentEl));
-  assert.ok(view.contentEl.children.indexOf(view.agentEl) < view.contentEl.children.indexOf(view.detailsEl));
+  assert.equal(view.agentEl, view.output.agentPanel);
+  assert.equal(view.agentEl.hidden, true);
+  assert.ok(view.contentEl.children.indexOf(view.output.root) < view.contentEl.children.indexOf(view.detailsEl));
   assert.equal(view.agentRunButton.disabled, false);
   await view.agentGuardButton.events.click();
   assert.deepEqual(calls, [{ allowTrusted: false }]);
@@ -426,7 +618,7 @@ for (const [format, stage] of [['directory', stagePackage], ['brat', stageBratPa
   await until(() => view.unsubscribe);
   assert.deepEqual(view.contentEl.children[0].children.map(child => child.text), ['Build', 'Set TeX target']);
   assert.equal(view.controlsEl.open, false);
-  assert.equal(view.agentEl.open, false);
+  assert.equal(view.agentEl.hidden, true);
   assert.equal(view.agentRunButton.disabled, true);
   assert.match(view.agentInfoEl.text, /not configured/);
   assert.equal(view.detailsEl.open, false);

@@ -48,6 +48,13 @@ class SourceStore {
     return this.snapshot(canonicalPath, texts[0], 'editor');
   }
 
+  /** Read a agreeing open editor hash synchronously, or null for closed notes. Usage: sources.editorHash(file) distinguishes an unchanged delayed save from a real edit. */
+  editorHash(file) {
+    const canonical = this.canonical(file);
+    const views = this.editors(file.path);
+    return views.length ? this.editorSnapshot(canonical, views).sha256 : null;
+  }
+
   /** Capture once before focus changes; a note opened during a disk read uses its editor. */
   async capture(file) {
     const canonicalPath = this.canonical(file);

@@ -19,9 +19,12 @@ class OutputTabs {
     tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Build output');
     this.pdfButton = tabs.createEl('button', { text: 'PDF' });
     this.logButton = tabs.createEl('button', { text: 'Compiler log' });
+    this.agentButton = tabs.createEl('button', { text: 'Agent' });
     this.pdfPanel = this.root.createDiv({ cls: 'md2tex-workshop-output-pdf' });
     this.logPanel = this.root.createEl('pre', { cls: 'md2tex-workshop-log-text' });
-    for (const [mode, button, panel] of [['pdf', this.pdfButton, this.pdfPanel], ['log', this.logButton, this.logPanel]]) {
+    this.agentPanel = this.root.createDiv({ cls: 'md2tex-workshop-output-agent' });
+    this.panels = [['pdf', this.pdfButton, this.pdfPanel], ['log', this.logButton, this.logPanel], ['agent', this.agentButton, this.agentPanel]];
+    for (const [mode, button, panel] of this.panels) {
       button.id = `${id}-${mode}-tab`; panel.id = `${id}-${mode}-panel`;
       button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', panel.id);
       panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', button.id);
@@ -29,8 +32,9 @@ class OutputTabs {
       button.addEventListener('keydown', event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();
-        const next = event.key === 'Home' ? 'pdf' : event.key === 'End' ? 'log' : mode === 'pdf' ? 'log' : 'pdf';
-        this.select(next); (next === 'pdf' ? this.pdfButton : this.logButton).focus();
+        const index = this.panels.findIndex(item => item[0] === mode);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+        this.select(this.panels[next][0]); this.panels[next][1].focus();
       });
     }
     this.select('pdf');
@@ -38,20 +42,20 @@ class OutputTabs {
 
   /** Switch visibility without recreating an already-rendered PDF or losing its scroll/zoom. */
   select(mode) {
-    if (this.disposed || !['pdf', 'log'].includes(mode)) return;
+    if (this.disposed || !['pdf', 'log', 'agent'].includes(mode)) return;
     const previous = this.mode;
-    if (previous === 'pdf' && mode === 'log') {
+    if (previous === 'pdf' && mode !== 'pdf') {
       const node = this.pdfPanel.querySelector?.('.pdf-viewer-container');
       this.pdfPosition = node ? { node, top: node.scrollTop, left: node.scrollLeft } : null;
     }
     this.mode = mode;
-    for (const [name, button, panel] of [['pdf', this.pdfButton, this.pdfPanel], ['log', this.logButton, this.logPanel]]) {
+    for (const [name, button, panel] of this.panels) {
       const selected = mode === name;
       panel.hidden = !selected; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
     }
     if (mode === 'pdf') void this.loadPdf(this.pdfStatus === 'error');
-    else void this.loadLog(this.logStatus === 'error');
-    if (mode === 'pdf' && previous === 'log') this.restorePdfPosition();
+    else if (mode === 'log') void this.loadLog(this.logStatus === 'error');
+    if (mode === 'pdf' && previous !== 'pdf') this.restorePdfPosition();
   }
 
   /** Restore viewport offsets after the native viewer responds to becoming visible again. */
@@ -88,7 +92,7 @@ class OutputTabs {
     if (!pdfKey) this.pdfPanel.setText('Build this note to see its PDF here.');
     if (!logKey) this.logPanel.setText(state.latest?.diagnostics?.length
       ? 'No compiler log for this attempt. Open Details and diagnostics.' : 'No compiler log for this note yet.');
-    if (this.mode === 'pdf') void this.loadPdf(); else void this.loadLog();
+    if (this.mode === 'pdf') void this.loadPdf(); else if (this.mode === 'log') void this.loadLog();
   }
 
   /** Render only the captured successful artifact; obsolete async work can only touch detached DOM. */

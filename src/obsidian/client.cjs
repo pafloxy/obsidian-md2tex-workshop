@@ -210,7 +210,10 @@ class ToolchainClient {
       });
       workerPid = processResult.workerPid;
       if (!frame || processResult.code !== (frame.result.status === 'success' ? 0 : 1)) throw failure('WORKER_PROTOCOL', 'Missing result or inconsistent worker exit status', directory);
-      if (frame.result.status === 'error' || frame.result.target?.status === 'error') await recordFailure({ frame });
+      if (frame.result.status === 'error' || frame.result.target?.status === 'error') {
+        const recorded = await recordFailure({ frame });
+        if (typeof recorded === 'string') frame = { ...frame, failureRecord: recorded };
+      }
       return frame;
     } catch (error) {
       const recorded = await recordFailure({ error, phase });

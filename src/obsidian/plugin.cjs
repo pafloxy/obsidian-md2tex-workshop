@@ -15,8 +15,15 @@ const { ToolchainClient } = require('./client.cjs');
 const { createViewClass, createReviewClass } = require('./view.cjs');
 const { documentDirectory } = require('../core/artifacts.cjs');
 const { renderPdf } = require('./pdf-embed.cjs');
+const { readFailurePacket } = require('../core/failure-packet.cjs');
+const { readRecordedFailure } = require('../core/failure-record.cjs');
+const { explainWithAgent, validateAgentProfile } = require('../core/agent-dispatch.cjs');
+const { explainWithApi, validateApiProfile } = require('../core/explanation-api.cjs');
+const { ExplanationSession } = require('./explanation-session.cjs');
+const { explanationReview } = require('./explanation-review.cjs');
 
-const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600 });
+const defaults = Object.freeze({ nodeCommand: 'node', latexmkCommand: 'latexmk', outputFolder: 'md2tex-workshop-output', buildTimeoutMs: 30000, engineOverride: '', preambleOverride: '', bibliographyFiles: '', bibliographyMode: 'bibtex', autoBuildEnabled: false, buildDebounceMs: 600,
+  explanationEnabled: false, explanationAutomatic: true, explanationProvider: 'local-api', explanationEndpoint: 'http://127.0.0.1:1234/v1/chat/completions', explanationModel: 'local', explanationExecutable: '', explanationTimeoutMs: 30000 });
 const labelMetadata = '<!-- [label{}] -->';
 const labelIdentifierOffset = '<!-- [label{'.length;
 
@@ -69,11 +76,56 @@ function verifiedPanelBibliography(value, vaultRoot) {
 }
 
 /** Bind public Obsidian interfaces to the deterministic manual-build modules. */
-function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
+function createRuntime(plugin, api, { openPath, writeClipboard, explanationProvider, prepareFailure } = {}) {
   const sources = new SourceStore({ app: plugin.app, MarkdownView: api.MarkdownView });
   const writer = new SourceWriter({ app: plugin.app, MarkdownView: api.MarkdownView, sourceStore: sources });
   const runtime = {
     plugin, api, sources, writer, settings: { ...defaults }, disposed: false, review: null, reviewLeaf: null,
+    /** Validate the selected explanation transport before opt-in or connection. Usage: runtime.explanationProfile(settings). */
+    explanationProfile(settings = this.settings) {
+      if (settings.explanationProvider === 'local-api') return validateApiProfile({ endpoint: settings.explanationEndpoint, model: settings.explanationModel, timeoutMs: Number(settings.explanationTimeoutMs) });
+      if (settings.explanationProvider !== 'codex') throw new Error('Choose Local API or Codex for explanations');
+      return validateAgentProfile({ schemaVersion: 'workshop-agent-profile.v1', enabled: true, adapter: 'codex', executable: settings.explanationExecutable, args: [], mode: 'trusted', timeoutMs: Number(settings.explanationTimeoutMs), inheritEnv: [] });
+    },
+    /** Persist an explicit panel opt-in; failure restores prior policy and never launches a provider. */
+    async configureExplanation(values) {
+      if (this.explanationSaving) throw new Error('Wait for the explanation settings to finish saving');
+      const allowed = ['explanationEnabled', 'explanationAutomatic', 'explanationProvider', 'explanationEndpoint', 'explanationModel', 'explanationExecutable', 'explanationTimeoutMs'];
+      if (!values || Object.keys(values).some(key => !allowed.includes(key))) throw new Error('Unexpected explanation setting');
+      const candidate = { ...this.settings, ...values };
+      for (const key of ['explanationEnabled', 'explanationAutomatic']) if (typeof candidate[key] !== 'boolean') throw new Error('Explanation switches must be true or false');
+      if (candidate.explanationEnabled) this.explanationProfile(candidate);
+      this.explanationSaving = true;
+      this.explanations.configure({ enabled: false });
+      const prior = this.settings;
+      try { await plugin.saveData(candidate); this.settings = candidate; this.explanations.configure({ enabled: candidate.explanationEnabled, automatic: candidate.explanationAutomatic }); }
+      catch (error) { this.settings = prior; this.explanations.configure({ enabled: prior.explanationEnabled, automatic: prior.explanationAutomatic }); throw error; }
+      finally { this.explanationSaving = false; this.controller.notify(); }
+    },
+    /** Prepare one captured attempt/job and verify it still belongs to the selected live note. */
+    async prepareExplanation(state, signal) {
+      if (prepareFailure) return prepareFailure(state, signal);
+      if (signal.aborted) throw Object.assign(new Error('Explanation cancelled'), { code: 'AGENT_CANCELLED' });
+      const record = state.diagnostic?.failureRecord || state.failureRecord;
+      let filename;
+      if (record) {
+        const root = path.join(this.configuration().outputRoot, '.jobs');
+        if (path.basename(record) !== 'failure.json' || path.dirname(path.dirname(record)) !== root) throw new Error('Failure record does not belong to this output root');
+        filename = record;
+      } else filename = this.artifact('result', { successful: false });
+      const packet = await (record ? readRecordedFailure(filename) : readFailurePacket(filename));
+      const snapshot = await sources.capture(state.target);
+      if (packet.identity.documentId !== sourceHash(snapshot.canonicalPath) || packet.identity.sourceHash !== snapshot.sha256) throw Object.assign(new Error('The note changed; rebuild before explaining it'), { code: 'STALE_EXPLANATION' });
+      return packet;
+    },
+    /** Send only a validated captured packet through the configured provider. */
+    async dispatchExplanation(packet, signal) {
+      if (!this.settings.explanationEnabled) throw Object.assign(new Error('Agent assistance is disabled'), { code: 'AGENT_DISABLED' });
+      if (explanationProvider) return explanationProvider(packet, signal);
+      const profile = this.explanationProfile();
+      if (this.settings.explanationProvider === 'local-api') return explainWithApi(packet, profile, { signal });
+      return explainWithAgent(packet, profile, { allowTrusted: true, signal, scratchRoot: path.join(this.configuration().outputRoot, '.agent-jobs') });
+    },
     /** Resolve explicit worker/recipe settings without consulting cached note frontmatter. */
     configuration(settings = this.settings) {
       const folder = settings.outputFolder;
@@ -145,6 +197,58 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       const relative = path.relative(expected, filename);
       if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error('Output does not belong to this note');
       return filename;
+    },
+    /** Revalidate the displayed response and live source without calling a provider or saving a note. */
+    async currentExplanationSnapshot(answer, packet) {
+      const current = () => !this.disposed && this.explanations.state().answer === answer && this.explanations.state().packet === packet && this.explanations.state().status === 'success';
+      if (!answer || !packet || !current()) throw new Error('No current agent response. Rebuild or request a fresh explanation.');
+      const state = this.controller.state();
+      if (!state.target || !this.explanations.eligible(state)) throw new Error('The draft or build changed. Request a fresh explanation.');
+      const snapshot = await sources.capture(state.target);
+      if (!current() || this.controller.state().target !== state.target || !this.explanations.eligible(this.controller.state())
+        || sourceHash(snapshot.canonicalPath) !== packet.identity.documentId || snapshot.sha256 !== packet.identity.sourceHash) throw new Error('The draft or response changed. Request a fresh explanation.');
+      return { state, snapshot };
+    },
+    /** Focus a verified Markdown range, reusing an editor; no source transaction, save or provider call.
+     * Usage: runtime.openExplanationLocation(answer, packet, finding.location).
+     */
+    async openExplanationLocation(answer, packet, location) {
+      const allowed = explanationReview(answer, packet).findings.map(finding => finding.location).filter(Boolean);
+      if (!location || Object.keys(location).sort().join('|') !== 'endLine|evidenceId|startLine'
+        || !Number.isSafeInteger(location.startLine) || !Number.isSafeInteger(location.endLine)
+        || !allowed.some(item => item.evidenceId === location.evidenceId && location.startLine >= item.startLine
+          && location.endLine >= location.startLine && location.endLine <= item.endLine)) throw new Error('This reference has no verified Markdown location.');
+      const { state, snapshot } = await this.currentExplanationSnapshot(answer, packet);
+      const file = state.target, sourcePath = file.path, lines = snapshot.text.split('\n');
+      if (location.endLine > lines.length) throw new Error('The source range is unavailable. Rebuild before navigating.');
+      if (!(plugin.app.vault.getAbstractFileByPath(sourcePath) instanceof api.TFile)) throw new Error('The source note is no longer in this vault.');
+      const workspace = plugin.app.workspace;
+      const editors = workspace.getLeavesOfType('markdown').filter(leaf => leaf.view instanceof api.MarkdownView && leaf.view.file?.path === sourcePath);
+      const active = workspace.getActiveViewOfType(api.MarkdownView);
+      let leaf = editors.find(item => item.view === active) || editors[0];
+      if (!leaf) {
+        leaf = workspace.getLeaf('tab');
+        await leaf.openFile(file, { active: true, state: { mode: 'source' }, eState: { line: location.startLine - 1 } });
+      } else if (leaf.view.getMode?.() === 'preview') {
+        await leaf.setViewState({ ...leaf.getViewState(), state: { ...leaf.getViewState().state, mode: 'source' } });
+      }
+      await this.currentExplanationSnapshot(answer, packet);
+      await workspace.revealLeaf(leaf);
+      await this.currentExplanationSnapshot(answer, packet);
+      const editor = leaf.view instanceof api.MarkdownView && leaf.view.file?.path === sourcePath ? leaf.view.editor : null;
+      if (!editor || editor.getValue() !== snapshot.text || !editor.setSelection || !editor.scrollIntoView || !editor.focus) throw new Error('The Markdown editor could not be focused safely. Rebuild and try again.');
+      const from = { line: location.startLine - 1, ch: 0 }, to = { line: location.endLine - 1, ch: lines[location.endLine - 1].replace(/\r$/, '').length };
+      editor.setSelection(from, to); editor.scrollIntoView({ from, to }, true); editor.focus();
+      return { sourcePath, startLine: location.startLine, endLine: location.endLine };
+    },
+    /** Copy exactly the displayed validated findings after a live-source freshness check. Usage: runtime.copyExplanation(answer, packet). */
+    async copyExplanation(answer, packet) {
+      if (!writeClipboard) throw new Error('Clipboard access is unavailable in this host');
+      await this.currentExplanationSnapshot(answer, packet);
+      const text = explanationReview(answer, packet).text;
+      await writeClipboard(text);
+      new api.Notice('Copied agent response with line context and manual suggestions.');
+      return { bytes: Buffer.byteLength(text, 'utf8') };
     },
     /** Copy the selected note's last successful generated document, never its editable linked target. */
     async copyGeneratedTex() {
@@ -342,6 +446,10 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       const saved = await plugin.loadData();
       if (this.disposed) return;
       this.settings = { ...defaults, ...(saved || {}) };
+      if (this.settings.explanationEnabled) {
+        try { this.explanationProfile(); this.explanations.configure({ enabled: true, automatic: this.settings.explanationAutomatic }); }
+        catch (error) { new api.Notice(`Agent settings need attention: ${error.message}`); }
+      }
       this.scheduler.configure({ enabled: this.settings.autoBuildEnabled === true, delayMs: Number(this.settings.buildDebounceMs) });
       const View = createViewClass(api, this);
       plugin.registerView('md2tex-workshop-view', leaf => new View(leaf));
@@ -358,7 +466,7 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
         ['reveal-compiled-pdf', 'Open Rendered PDF Tab', () => this.openArtifact('pdf')],
         ['open-generated-tex', 'Open Generated TeX', () => this.openArtifact('tex')],
         ['copy-generated-tex', 'Copy Generated TeX from Last Successful Build', () => this.copyGeneratedTex()],
-        ['ask-agent-to-fix-compile-error', 'Explain Compilation Assistance Availability', () => { new api.Notice('AI assistance is off. Compilation diagnostics are available in the Workshop.'); }],
+        ['ask-agent-to-fix-compile-error', 'Explain Failed Build', async () => { await this.openView(); if (!this.settings.explanationEnabled) new api.Notice('AI assistance is off. Enable a provider in the Agent tab.'); else await this.explanations.request(); }],
       ];
       for (const [id, name, action] of actions) plugin.addCommand({ id, name, callback: () => this.perform(action) });
       plugin.addCommand({ id: 'insert-label-metadata', name: 'Insert Label Metadata', hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'L' }], editorCallback: editor => insertLabelMetadata(editor) });
@@ -386,10 +494,14 @@ function createRuntime(plugin, api, { openPath, writeClipboard } = {}) {
       plugin.addSettingTab(new (settingsClass(api, this))(plugin.app, plugin));
     },
     /** Prevent new work and suppress late UI updates while clients finish bounded shutdown. */
-    dispose() { this.disposed = true; this.controller.dispose(); this.scheduler.dispose(); },
+    dispose() { this.disposed = true; this.explanations.dispose(); this.explanationUnsubscribe?.(); this.controller.dispose(); this.scheduler.dispose(); },
   };
   runtime.controller = new BuildController({ sourceStore: sources, configuration: () => runtime.configuration(), createClient: config => new ToolchainClient(config) });
   runtime.scheduler = new BuildScheduler(runtime.controller);
+  runtime.explanations = new ExplanationSession({ prepare: (state, signal) => runtime.prepareExplanation(state, signal), dispatch: (packet, signal) => runtime.dispatchExplanation(packet, signal),
+    onChange: state => { runtime.controller.assistance = state; runtime.controller.notify(); } });
+  runtime.controller.assistance = runtime.explanations.state();
+  runtime.explanationUnsubscribe = runtime.controller.subscribe(state => runtime.explanations.observe(state));
   return runtime;
 }
 

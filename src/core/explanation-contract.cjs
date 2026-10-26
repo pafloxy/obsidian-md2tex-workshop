@@ -6,6 +6,7 @@
 const { sourceHash: hash } = require('./protocol.cjs');
 const packetVersion = 'workshop-failure-packet.v2';
 const responseVersion = 'workshop-explanation.v1';
+const reviewVersion = 'workshop-explanation.v2';
 const limits = Object.freeze({ packetBytes: 48 * 1024, responseBytes: 8192, excerptBytes: 4096 });
 const categories = ['tool-setup', 'execution', 'bibliography', 'target-publication', 'unsupported-syntax', 'configuration', 'markdown', 'tex', 'output-validation', 'runtime'];
 
@@ -23,7 +24,7 @@ function copy(value, maximum) {
   if (!text || Buffer.byteLength(text) > maximum) fail('Payload exceeds its byte limit.', 'EXPLANATION_LIMIT');
   return JSON.parse(text);
 }
-/** Require exact keys; command, file and patch fields never enter the accepted contract. */
+/** Require exact keys so replies cannot introduce command or source-write authority. */
 function object(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length
     || keys.some(key => !Object.hasOwn(value, key))) fail('Unexpected or missing contract field.');
@@ -98,8 +99,9 @@ function validateFailurePacket(raw) {
 function validateExplanation(raw, expectedPacket) {
   const packet = validateFailurePacket(expectedPacket);
   const response = copy(raw, limits.responseBytes);
-  object(response, ['schemaVersion', 'packetId', 'failureId', 'sourceHash', 'verdict', 'summary', 'evidenceIds', 'suggestions']);
-  if (response.schemaVersion !== responseVersion || !['explained', 'uncertain', 'needs-human'].includes(response.verdict)) fail('Unsupported explanation response.');
+  const review = response.schemaVersion === reviewVersion;
+  object(response, ['schemaVersion', 'packetId', 'failureId', 'sourceHash', 'verdict', 'summary', 'evidenceIds', 'suggestions', ...(review ? ['locations', 'edits'] : [])]);
+  if (![responseVersion, reviewVersion].includes(response.schemaVersion) || !['explained', 'uncertain', 'needs-human'].includes(response.verdict)) fail('Unsupported explanation response.');
   for (const [key, expected] of [['packetId', packet.packetId], ['failureId', packet.identity.failureId], ['sourceHash', packet.identity.sourceHash]]) {
     if (response[key] !== expected) fail(`Explanation has a different ${key}.`, 'STALE_EXPLANATION');
   }
@@ -111,7 +113,31 @@ function validateExplanation(raw, expectedPacket) {
   text(response.summary, 1200); references(response.evidenceIds);
   if (!Array.isArray(response.suggestions) || response.suggestions.length > 3) fail('At most three manual suggestions are accepted.');
   for (const suggestion of response.suggestions) { object(suggestion, ['text', 'evidenceIds']); text(suggestion.text, 600); references(suggestion.evidenceIds); }
+  if (review) {
+    if (!Array.isArray(response.locations) || response.locations.length > 3 || !Array.isArray(response.edits) || response.edits.length > 3) fail('At most three locations and manual edits are accepted.');
+    /** Resolve a reply range only inside a supplied, complete excerpt. */
+    function range(item, sourceOnly = false) {
+      const evidence = packet.evidence.find(value => value.id === item.evidenceId);
+      if (!evidence || !['source', 'log'].includes(evidence.kind) || (sourceOnly && (evidence.kind !== 'source' || evidence.truncated))) fail('Location requires a supplied excerpt; edits require complete source evidence.');
+      integer(item.startLine, evidence.startLine); integer(item.endLine, item.startLine);
+      if (item.endLine > evidence.endLine) fail('Location is outside supplied evidence.');
+      text(item.reason, 600);
+      return evidence;
+    }
+    for (const location of response.locations) { object(location, ['evidenceId', 'startLine', 'endLine', 'reason']); range(location); }
+    const edits = [...response.edits].sort((a, b) => a.startLine - b.startLine);
+    let previousEnd = 0;
+    for (const edit of edits) {
+      object(edit, ['evidenceId', 'startLine', 'endLine', 'before', 'after', 'reason']);
+      const evidence = range(edit, true);
+      text(edit.before, 4096, true); text(edit.after, 4096, true);
+      const expected = evidence.text.split('\n').slice(edit.startLine - evidence.startLine, edit.endLine - evidence.startLine + 1).join('\n');
+      if (edit.before !== expected || edit.before === edit.after || edit.startLine <= previousEnd) fail('Manual edit does not match captured lines, overlaps, or makes no change.');
+      if (['tool-setup', 'execution', 'configuration', 'target-publication'].includes(packet.category)) fail('This failure category cannot justify a source syntax patch.');
+      previousEnd = edit.endLine;
+    }
+  }
   return freeze(response);
 }
 
-module.exports = { packetVersion, responseVersion, limits, canonical, sealPacket, validateFailurePacket, validateExplanation };
+module.exports = { packetVersion, responseVersion, reviewVersion, limits, canonical, sealPacket, validateFailurePacket, validateExplanation };

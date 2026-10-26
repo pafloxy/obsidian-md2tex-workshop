@@ -3,6 +3,7 @@
  * Usage: const View = createViewClass(api, runtime); plugin.registerView(type, leaf => new View(leaf));
  */
 const { OutputTabs } = require('./output-tabs.cjs');
+const { explanationReview, referenceSegments } = require('./explanation-review.cjs');
 
 const patchContextLines = 3;
 const patchChangedLineLimit = 400;
@@ -209,14 +210,21 @@ function createViewClass(api, runtime) {
       this.saveBibButton = this.button(bibliography, 'Use bibliography', () => runtime.setBibliography(this.bibInput.value, this.bibMode.value));
       this.bibStatusEl = this.controlsEl.createDiv({ cls: 'md2tex-workshop-note' });
       this.output = new OutputTabs(api, runtime, this, root);
-      this.agentEl = this.disclosure(root, 'Agent explanation');
+      this.agentEl = this.output.agentPanel;
       this.agentInfoEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-info' });
+      if (runtime.configureExplanation) this.mountAgentConfiguration();
       const agentActions = this.agentEl.createDiv({ cls: 'md2tex-workshop-toolbar' });
       this.agentGuardButton = this.button(agentActions, 'Check consent guard', () => this.requestExplanation(false));
       this.agentRunButton = this.button(agentActions, runtime.explanationActionLabel || 'Run explanation', () => this.requestExplanation(true));
+      this.agentCancelButton = this.button(agentActions, 'Cancel explanation', () => runtime.explanations?.cancel());
+      this.agentCopyButton = this.button(agentActions, 'Copy agent response', () => runtime.copyExplanation(this.agentDisplayedAnswer, this.agentDisplayedPacket));
+      this.agentCopyButton.disabled = true;
+      this.agentGuardButton.hidden = Boolean(runtime.explanations);
       this.agentStatusEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-status' });
       this.agentStatusEl.setAttribute('role', 'status');
-      this.agentResultEl = this.agentEl.createEl('pre', { cls: 'md2tex-workshop-agent-result' });
+      this.agentResultEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-result' });
+      this.agentResultEl.setAttribute('aria-label', 'Agent advice — diagnosis');
+      this.agentPatchEl = this.agentEl.createDiv({ cls: 'md2tex-workshop-agent-patches' });
       this.detailsEl = this.disclosure(root, 'Details and diagnostics');
       const summary = this.detailsEl.createDiv({ cls: 'md2tex-workshop-summary' });
       this.recipeEl = summary.createDiv();
@@ -244,8 +252,104 @@ function createViewClass(api, runtime) {
       element.addEventListener('click', () => runtime.perform(action));
       return element;
     }
+    /** Show explicit provider/automatic opt-in inside the Agent tab. Usage: this.mountAgentConfiguration() during view mount. */
+    mountAgentConfiguration() {
+      const settings = runtime.settings || {};
+      const configuration = this.disclosure(this.agentEl, 'Configure assistance');
+      this.agentProviderInput = configuration.createEl('select');
+      this.agentProviderInput.setAttribute('aria-label', 'Explanation provider');
+      for (const [value, label] of [['local-api', 'Local HTTP API'], ['codex', 'Local Codex CLI']]) this.agentProviderInput.createEl('option', { text: label, attr: { value } });
+      this.agentProviderInput.value = settings.explanationProvider || 'local-api';
+      this.agentFields = {};
+      for (const [key, label, fallback] of [
+        ['explanationEndpoint', 'Local chat-completions URL', 'http://127.0.0.1:1234/v1/chat/completions'],
+        ['explanationModel', 'Local model name', 'local'],
+        ['explanationExecutable', 'Codex absolute executable path', ''],
+      ]) {
+        const field = configuration.createEl('label', { text: label });
+        const input = field.createEl('input', { type: 'text' }); input.value = settings[key] ?? fallback; input.setAttribute('aria-label', label);
+        this.agentFields[key] = input;
+      }
+      const automatic = configuration.createEl('label', { text: 'Explain new failed builds automatically' });
+      this.agentAutoInput = automatic.createEl('input', { type: 'checkbox' }); this.agentAutoInput.checked = settings.explanationAutomatic !== false;
+      configuration.createEl('p', { text: 'Enabling sends captured diagnostic/log excerpts and any mapped syntax lines to the selected provider. Local Codex may contact its cloud provider. Suggested patches are for you to edit manually.' });
+      this.button(configuration, 'Enable assistance', async () => {
+        await runtime.configureExplanation({ explanationEnabled: true, explanationAutomatic: this.agentAutoInput.checked, explanationProvider: this.agentProviderInput.value,
+          ...Object.fromEntries(Object.entries(this.agentFields).map(([key, input]) => [key, input.value])) });
+      });
+      this.button(configuration, 'Disable assistance', () => runtime.configureExplanation({ explanationEnabled: false }));
+    }
+    /** Render a keyboard-accessible source reference, retaining the original answer/packet for click-time checks. */
+    sourceReference(parent, text, answer, packet, location) {
+      const link = this.button(parent, text, () => runtime.openExplanationLocation(answer, packet, location));
+      link.addClass('md2tex-workshop-source-link');
+      link.setAttribute('type', 'button');
+      link.setAttribute('aria-label', `Focus ${text} in the Markdown editor`);
+      link.setAttribute('title', 'Open, select and focus the captured Markdown lines; no edit is applied');
+      link.disabled = typeof runtime.openExplanationLocation !== 'function';
+      return link;
+    }
+    /** Keep advice inert while linking only literal references supported by verified Markdown ranges. */
+    referenceText(element, text, answer, packet, locations, sourcePath) {
+      const parts = referenceSegments(text, sourcePath, locations);
+      if (!parts.some(part => part.location)) { element.setText(text); return; }
+      element.empty();
+      for (const part of parts) {
+        if (part.location) this.sourceReference(element, part.text, answer, packet, part.location);
+        else element.createEl('span', { text: part.text });
+      }
+    }
+    /** Render validated advice and source links with evidence-bound display patches, never an Apply action. */
+    renderExplanation(answer, packet) {
+      this.agentResultEl.setText(''); this.agentPatchEl.empty();
+      this.agentDisplayedAnswer = null; this.agentDisplayedPacket = null; this.agentCopyButton.disabled = true;
+      if (!answer?.explanation) return;
+      const review = explanationReview(answer, packet);
+      this.agentDisplayedAnswer = answer; this.agentDisplayedPacket = packet;
+      this.agentCopyButton.disabled = typeof runtime.copyExplanation !== 'function';
+      const sourcePath = runtime.controller.state().target?.path;
+      const locations = review.findings.map(finding => finding.location).filter(Boolean);
+      this.referenceText(this.agentResultEl, review.summary, answer, packet, locations, sourcePath);
+      for (const [index, finding] of review.findings.entries()) {
+        const card = this.agentPatchEl.createDiv({ cls: 'md2tex-workshop-agent-finding' });
+        const heading = card.createEl('h4', { text: `Finding ${index + 1} — ${finding.label}` });
+        if (finding.location && sourcePath) {
+          const { startLine, endLine } = finding.location;
+          this.sourceReference(heading, `${sourcePath}:L${startLine}${endLine === startLine ? '' : `-L${endLine}`}`, answer, packet, finding.location);
+        }
+        const advice = card.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
+        advice.setAttribute('aria-label', 'Agent advice');
+        advice.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice' });
+        this.referenceText(advice.createEl('p'), finding.reason, answer, packet, locations, sourcePath);
+        const excerpt = card.createEl('section', { cls: 'md2tex-workshop-agent-excerpt' });
+        excerpt.setAttribute('aria-label', 'Captured text — not agent advice');
+        excerpt.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: finding.label.startsWith('Compiler log') ? 'Captured compiler log · actual text' : 'Captured Markdown · actual text' });
+        const context = excerpt.createEl('pre', { cls: 'md2tex-workshop-agent-context' });
+        context.setAttribute('aria-label', 'Captured context. Highlighted lines are affected; numbers are absolute source or log lines.');
+        for (const line of finding.context.lines) context.createEl('span', { cls: line.affected ? 'md2tex-workshop-agent-fault' : '', text: `${line.affected ? '>' : ' '} ${line.number ?? '…'} | ${line.text}\n` });
+        if (finding.context.note) excerpt.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: finding.context.note });
+        const edit = finding.edit;
+        if (!edit) { advice.createEl('p', { text: 'No suggested edit for this location. Follow the diagnosis and check manually.' }); continue; }
+        const proposed = card.createEl('section', { cls: 'md2tex-workshop-agent-proposal' });
+        proposed.setAttribute('aria-label', 'Suggested edit — not applied');
+        proposed.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Suggested edit · not applied' });
+        proposed.createEl('p', { text: 'Please make this change yourself, then Build again.' });
+        const pre = proposed.createEl('pre', { cls: 'md2tex-workshop-patch' });
+        pre.setAttribute('aria-label', 'Suggested manual patch. Removed lines start with minus; added lines start with plus.');
+        const diff = createUnifiedDiff(edit.before + '\n', edit.after ? edit.after + '\n' : '');
+        for (const line of diff.lines) if (line.kind === 'hunk') line.text = line.text.replace(/@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@/, (_match, old, oldCount = '', next, nextCount = '') => `@@ -${Number(old) + edit.startLine - 1}${oldCount} +${Number(next) + edit.startLine - 1}${nextCount} @@`);
+        renderUnifiedDiff(pre, diff);
+      }
+      if (review.suggestions.length) {
+        const next = this.agentPatchEl.createEl('section', { cls: 'md2tex-workshop-agent-advice' });
+        next.createEl('h5', { cls: 'md2tex-workshop-agent-section-label', text: 'Agent advice · next steps' });
+        for (const suggestion of review.suggestions) this.referenceText(next.createEl('p'), suggestion, answer, packet, locations, sourcePath);
+      }
+      this.agentPatchEl.createEl('p', { cls: 'md2tex-workshop-agent-manual', text: review.manual });
+    }
     /** Request one read-only explanation; discard replies if the build or editor revision changes. */
     async requestExplanation(allowTrusted) {
+      if (runtime.explanations) { this.output.select('agent'); return runtime.explanations.request(); }
       const before = runtime.controller.state();
       const build = before.latest;
       if (this.agentBusy || !runtime.explainFailure || !before.latestCurrent || build?.status !== 'error') return;
@@ -317,12 +421,24 @@ function createViewClass(api, runtime) {
         this.agentShownCurrent = state.latestCurrent;
         this.agentShownTarget = state.target?.path;
         this.agentResultEl.setText('');
+        this.agentPatchEl.empty();
         let agentMessage = 'Build a failing revision to explain it.';
         if (!state.latestCurrent && latest) agentMessage = 'Draft changed; rebuild before explaining it.';
         else if (latest?.status === 'success') agentMessage = 'Build succeeded; no explanation needed.';
         else if (latest?.status === 'error' && !runtime.explainFailure) agentMessage = 'Agent assistance is not configured.';
         else if (explainable) agentMessage = 'Current build failed. Request an explanation.';
         this.agentStatusEl.setText(agentMessage);
+      }
+      const assistance = state.assistance;
+      this.agentCancelButton.disabled = assistance?.status !== 'running';
+      if (assistance && runtime.explanations) {
+        this.agentInfoEl.setText(assistance.enabled ? `${runtime.settings?.explanationProvider === 'codex' ? 'Codex CLI' : 'Local API'} assistance enabled; automatic explanations ${assistance.automatic ? 'on' : 'off'}.` : 'Agent assistance is not configured. Enable it in Configure assistance.');
+        this.agentRunButton.disabled = !assistance.enabled || !runtime.explanations.eligible(state) || assistance.status === 'running';
+        this.agentRunButton.setText(assistance.status === 'error' || assistance.status === 'cancelled' ? 'Retry explanation' : assistance.status === 'running' ? 'Explaining…' : 'Explain failed build');
+        this.agentStatusEl.setText(assistance.message);
+        this.renderExplanation(assistance.answer, assistance.packet);
+        this.output.agentButton.setText(assistance.status === 'running' ? 'Agent · working' : assistance.status === 'success' ? 'Agent · suggestion' : assistance.status === 'error' ? 'Agent · retry' : 'Agent');
+        if (assistance.status === 'running' && this.agentAutoOpened !== latest) { this.agentAutoOpened = latest; this.output.select('agent'); }
       }
       const location = diagnostic?.path || diagnostic?.texFile;
       this.diagnosticEl.setText(diagnostic ? `${!state.diagnostic && !state.latestCurrent ? 'From an earlier or unchecked revision; rebuild for current locations.\n' : ''}${diagnostic.code}: ${diagnostic.message}${location ? `\n${location}${diagnostic.line || diagnostic.texLine ? `:${diagnostic.line || diagnostic.texLine}` : ''}` : ''}` : 'No diagnostics.');

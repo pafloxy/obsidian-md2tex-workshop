@@ -151,6 +151,42 @@ function result(call, status = 'success') {
 /** Let an already-started source capture reach the mocked worker. */
 async function tick() { await new Promise(resolve => setImmediate(resolve)); }
 
+test('a delayed unchanged autosave restores failed-build currentness without rebuilding', async () => {
+  const value = fixture();
+  const file = { path: 'autosave.md' };
+  const editor = new MarkdownView(file, '# Failed draft\n');
+  value.leaves.push({ view: editor });
+  const pending = value.controller.compile(file);
+  await tick(); value.calls[0].resolve(result(value.calls[0], 'error')); await pending;
+  assert.equal(value.controller.state().latestCurrent, true);
+  const generation = value.controller.state().buildGeneration;
+  value.controller.invalidate(file);
+  assert.equal(value.controller.state().latestCurrent, true, 'a proven unchanged open editor preserves in-flight advice');
+  await tick();
+  assert.equal(value.controller.state().latestCurrent, true, 'equal captured text becomes current again after autosave');
+  assert.equal(value.controller.state().buildGeneration, generation);
+  assert.equal(value.calls.length, 1, 'freshness checking never builds or edits');
+  editor.text += 'Actual edit\n'; value.controller.invalidate(file);
+  assert.equal(value.controller.state().latestCurrent, false, 'a real edit immediately revokes advice');
+  await tick();
+  assert.equal(value.controller.state().latestCurrent, false, 'different text remains stale');
+});
+
+test('an older invalidation read cannot restore currentness after a newer edit', async () => {
+  const value = fixture();
+  const file = { path: 'freshness-race.md' };
+  value.disk.set(file.path, '# Original\n');
+  const pending = value.controller.compile(file);
+  await tick(); value.calls[0].resolve(result(value.calls[0], 'error')); await pending;
+  const older = deferred(); const newer = deferred(); let captures = 0;
+  value.sources.capture = () => (++captures === 1 ? older : newer).promise;
+  value.controller.invalidate(file); value.controller.invalidate(file);
+  newer.resolve(value.sources.snapshot(value.sources.canonical(file), '# Changed\n', 'disk')); await tick();
+  older.resolve(value.sources.snapshot(value.sources.canonical(file), '# Original\n', 'disk')); await tick();
+  assert.equal(value.controller.state().latestCurrent, false);
+  assert.equal(value.controller.record(file).currentHash, sourceHash('# Changed\n'));
+});
+
 test('inactive editors are captured synchronously and conflicting views are refused', async () => {
   const value = sourceFixture();
   const file = { path: 'draft.md' };
