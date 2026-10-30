@@ -44,7 +44,7 @@ This is a bounded editing workflow, not automatic synchronization or an arbitrar
 
 ## Try the desktop beta or source checkout
 
-The Linux-first desktop beta [0.1.3](https://github.com/pafloxy/obsidian-md2tex-workshop/releases/tag/0.1.3) is published with `main.js`, `manifest.json`, and `styles.css`. In BRAT 1.1.0 or newer, add `pafloxy/obsidian-md2tex-workshop` and freeze the version to `0.1.3` for a reproducible trial in a disposable vault. GitHub's latest stable release still points to the older source-only `v0.1.0`; use the exact beta link. See [installation instructions and release limits](docs/releases/0.1.3-brat.md).
+The Linux-first desktop beta [0.1.4](https://github.com/pafloxy/obsidian-md2tex-workshop/releases/tag/0.1.4) supplies `main.js`, `manifest.json`, and `styles.css`. In BRAT 1.1.0 or newer, add `pafloxy/obsidian-md2tex-workshop` and freeze version `0.1.4` for a reproducible trial in a disposable vault. Use the exact prerelease rather than GitHub's latest stable endpoint. See [installation instructions, asset hashes and release limits](docs/releases/0.1.4-brat.md).
 
 The hosted assets are available, but installation through BRAT, enable/reload, and the current UI's core workflows still need fresh native Obsidian acceptance. This beta is desktop Linux only; macOS, Windows, and mobile worker execution are unsupported. The declared minimum Obsidian 1.7.2 has not been natively validated. Node.js 24+, `latexmk`, a TeX engine and the recipe's TeX packages are external prerequisites; the plugin does not install them.
 
@@ -56,6 +56,12 @@ node scripts/workshop.cjs build examples/quickstart/note.md --out-dir tmp/quicks
 ```
 
 For a local three-file Obsidian candidate, follow [the BRAT packaging guide](docs/brat.md). Packaging creates `main.js`, `manifest.json`, and `styles.css`; it does not publish or install them.
+
+## Optional assistance and file access
+
+Failed-build assistance starts disabled. Explicit enable sends bounded captured source/log evidence to your configured loopback HTTP API or installed Codex CLI. A local API server may forward that evidence elsewhere; Codex may use saved authentication, contact its cloud provider and incur charges. Suggestions remain manual. Ordinary compilation requires no model account. See [the explanation guide](docs/automatic-explanations.md).
+
+Explicit CLI recipes, preambles, bibliographies, support files and linked targets may refer outside a vault. Retained build outputs, previews, backups and linked state support compilation and guarded recovery. The bundled companion is restored and verified within the plugin directory; Node.js, TeX tools and providers are installed separately by the user. See [the release data and filesystem boundaries](docs/releases/0.1.4-brat.md).
 
 ## Explore the workflows
 
