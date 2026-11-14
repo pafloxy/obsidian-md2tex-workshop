@@ -11,79 +11,27 @@ Keep Markdown as your everyday drafting surface and a working TeX document besid
 
 >> **Extremely useful for those of us who love the in-place compilation of obsidian for drafting research articles, rather than to read raw latex untill its compiled.**
 
-![Illustrated md2tex Workshop workflow: build Markdown into linked TeX and PDF, review TeX edits as a red and green Markdown patch, apply the accepted change, and preserve a TeX-owned table across the next build](docs/assets/readme/md2tex-workflow.gif)
-
-_Illustrated workflow, exact layout may evolve._
-
 ## Watch individual features
 
-The overview above covers the round trip. Expand a focused GIF below for the other steps, or read the [demo guide and limitations](docs/demo-gallery.md). These are **illustrated workflows, not screen recordings or native acceptance evidence**. Their historical “incoming diff UI” footer describes the September 2026 illustration baseline; the current source implements red/green review, but the drawings are not an exact UI promise.
+These GIFs play directly below and show **the working plugin in real screen recordings**, edited on 26 September 2026. Waits are shortened; the round trip combines two recordings. They show the recorded version, not a fresh test of today's build. The current review UI uses a red/green patch rather than the older proposed-text view shown here.
 
-<details>
-<summary>Preserve exact TeX through Markdown edits (66 s)</summary>
+### Markdown → LaTeX / PDF
 
-Promote a noncanonical table to a managed TeX-owned slot, review the generated pointer, then edit surrounding Markdown and rebuild without changing the TeX body. The pointer is not self-contained: retain the linked target state.
+Write academic Markdown, add references, build locally, and inspect the PDF with resolved references. **21 seconds.**
 
-![Preserve exact TeX through Markdown edits](docs/assets/demos/tex-owned-island.gif)
+![Recorded md2tex workflow: academic Markdown, references, Build, and the resulting PDF](docs/assets/recorded/md2tex-basic-conversion.gif)
 
-[Runnable example](examples/claims/06-tex-owned-slot.md) · [Open GIF](docs/assets/demos/tex-owned-island.gif)
+[Runnable example](examples/claims/02-local-tex-pdf.md) · [Open GIF](docs/assets/recorded/md2tex-basic-conversion.gif)
 
-</details>
+### Guarded TeX → Markdown round trip
 
-<details>
-<summary>Build academic Markdown into a local PDF (20 s)</summary>
+Choose a linked TeX target, edit inside unchanged anchors, save, Preview, review, Apply, and rebuild the PDF. **45.5 seconds.** Preview and Apply are separate actions; this is not automatic synchronization.
 
-Start with readable prose, labels and equations, build with the local TeX toolchain, and inspect the PDF beside the source.
+![Recorded md2tex workflow: edit linked TeX, preview the proposed Markdown, explicitly apply, and rebuild the PDF](docs/assets/recorded/md2tex-guarded-roundtrip.gif)
 
-![Build academic Markdown into a local PDF](docs/assets/demos/basic-build.gif)
+[Runnable example](examples/claims/04-guarded-round-trip.md) · [Open GIF](docs/assets/recorded/md2tex-guarded-roundtrip.gif)
 
-[Runnable example](examples/claims/02-local-tex-pdf.md) · [Open GIF](docs/assets/demos/basic-build.gif)
-
-</details>
-
-<details>
-<summary>Edit a supported table from either side (46 s)</summary>
-
-Change a canonical simple-table cell in TeX, preview and apply the Markdown patch, then edit a Markdown cell and build back to TeX. Complex tables are not automatically converted to grids.
-
-![Edit a supported table from either side](docs/assets/demos/native-table.gif)
-
-[Runnable example](examples/claims/07-native-structured-roundtrip.md) · [Open GIF](docs/assets/demos/native-table.gif)
-
-</details>
-
-<details>
-<summary>Keep aligned equations editable (33 s)</summary>
-
-Recover a complete supported align environment as visible Markdown math while preserving its label, after Preview and Apply.
-
-![Keep aligned equations editable](docs/assets/demos/native-align.gif)
-
-[Runnable example](examples/claims/07-native-structured-roundtrip.md) · [Open GIF](docs/assets/demos/native-align.gif)
-
-</details>
-
-<details>
-<summary>Insert label metadata without leaving the editor (25 s)</summary>
-
-Invoke Insert Label Metadata (default Mod+Shift+L), type the identifier, and keep the hidden label separate from the heading.
-
-![Insert label metadata without leaving the editor](docs/assets/demos/label-shortcut.gif)
-
-[Runnable example](examples/claims/05-label-shortcut.md) · [Open GIF](docs/assets/demos/label-shortcut.gif)
-
-</details>
-
-<details>
-<summary>Refuse an overwrite when the linked TeX changed (28 s)</summary>
-
-A build refuses to replace an edited linked target. Return to Preview and reconcile the change explicitly instead of forcing agreement.
-
-![Refuse an overwrite when the linked TeX changed](docs/assets/demos/guarded-refusal.gif)
-
-[Runnable example](examples/claims/04-guarded-round-trip.md) · [Open GIF](docs/assets/demos/guarded-refusal.gif)
-
-</details>
+For the TeX-owned-island, table, aligned-equation, label and refusal walkthroughs, see the separate [illustrated feature gallery](docs/demo-gallery.md). Those are explanatory animations, not screen recordings.
 
 ## One document, two editing surfaces
 
