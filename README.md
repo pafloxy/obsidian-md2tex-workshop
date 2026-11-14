@@ -15,6 +15,76 @@ Keep Markdown as your everyday drafting surface and a working TeX document besid
 
 _Illustrated workflow, exact layout may evolve._
 
+## Watch individual features
+
+The overview above covers the round trip. Expand a focused GIF below for the other steps, or read the [demo guide and limitations](docs/demo-gallery.md). These are **illustrated workflows, not screen recordings or native acceptance evidence**. Their historical “incoming diff UI” footer describes the September 2026 illustration baseline; the current source implements red/green review, but the drawings are not an exact UI promise.
+
+<details>
+<summary>Preserve exact TeX through Markdown edits (66 s)</summary>
+
+Promote a noncanonical table to a managed TeX-owned slot, review the generated pointer, then edit surrounding Markdown and rebuild without changing the TeX body. The pointer is not self-contained: retain the linked target state.
+
+![Preserve exact TeX through Markdown edits](docs/assets/demos/tex-owned-island.gif)
+
+[Runnable example](examples/claims/06-tex-owned-slot.md) · [Open GIF](docs/assets/demos/tex-owned-island.gif)
+
+</details>
+
+<details>
+<summary>Build academic Markdown into a local PDF (20 s)</summary>
+
+Start with readable prose, labels and equations, build with the local TeX toolchain, and inspect the PDF beside the source.
+
+![Build academic Markdown into a local PDF](docs/assets/demos/basic-build.gif)
+
+[Runnable example](examples/claims/02-local-tex-pdf.md) · [Open GIF](docs/assets/demos/basic-build.gif)
+
+</details>
+
+<details>
+<summary>Edit a supported table from either side (46 s)</summary>
+
+Change a canonical simple-table cell in TeX, preview and apply the Markdown patch, then edit a Markdown cell and build back to TeX. Complex tables are not automatically converted to grids.
+
+![Edit a supported table from either side](docs/assets/demos/native-table.gif)
+
+[Runnable example](examples/claims/07-native-structured-roundtrip.md) · [Open GIF](docs/assets/demos/native-table.gif)
+
+</details>
+
+<details>
+<summary>Keep aligned equations editable (33 s)</summary>
+
+Recover a complete supported align environment as visible Markdown math while preserving its label, after Preview and Apply.
+
+![Keep aligned equations editable](docs/assets/demos/native-align.gif)
+
+[Runnable example](examples/claims/07-native-structured-roundtrip.md) · [Open GIF](docs/assets/demos/native-align.gif)
+
+</details>
+
+<details>
+<summary>Insert label metadata without leaving the editor (25 s)</summary>
+
+Invoke Insert Label Metadata (default Mod+Shift+L), type the identifier, and keep the hidden label separate from the heading.
+
+![Insert label metadata without leaving the editor](docs/assets/demos/label-shortcut.gif)
+
+[Runnable example](examples/claims/05-label-shortcut.md) · [Open GIF](docs/assets/demos/label-shortcut.gif)
+
+</details>
+
+<details>
+<summary>Refuse an overwrite when the linked TeX changed (28 s)</summary>
+
+A build refuses to replace an edited linked target. Return to Preview and reconcile the change explicitly instead of forcing agreement.
+
+![Refuse an overwrite when the linked TeX changed](docs/assets/demos/guarded-refusal.gif)
+
+[Runnable example](examples/claims/04-guarded-round-trip.md) · [Open GIF](docs/assets/demos/guarded-refusal.gif)
+
+</details>
+
 ## One document, two editing surfaces
 
 ```text
